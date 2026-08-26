@@ -68,17 +68,25 @@ def posthoc_robust(feats: pd.DataFrame) -> pd.DataFrame:
     return (feats - center) / scale
 
 
-def missing_report(normalized: pd.DataFrame) -> dict[str, int | float]:
-    """결측이 얼마나 생겼는지. 감사 로그에 남긴다.
+def missing_report(normalized: pd.DataFrame, crop: tuple[int, int]) -> dict[str, int | float]:
+    """결측이 얼마나 생겼는지. **절단 전후를 나눠서** 센다.
 
-    결측 자체가 "밤 초반" 이라는 신호가 되므로 (결측 여부 = 에포크 인덱스 < min_periods),
-    규모를 알고 있어야 한다. 또 선형 baseline 은 결측을 받지 못해 별도 대치가 필요하다 —
-    그러면 부스팅과 서로 다른 데이터를 보게 되어 모델 비교가 오염된다.
+    절단 전 결측은 대부분 warmup 구간(첫 ``min_periods`` 에포크)이고,
+    절단하면 사라진다 — 실측상 녹음 153개의 ``crop_lo`` 중앙값이 839 라
+    warmup 이 절단 구간에 들어오는 녹음은 2개뿐이다.
+
+    **절단 후 결측이 실제로 학습에 들어가는 것**이라 이 숫자가 중요하다.
+    결측 자체가 "밤 초반" 이라는 신호가 되고(결측 여부 = 에포크 인덱스 < min_periods),
+    무엇보다 **선형 baseline 은 결측을 받지 못한다** — 별도 대치를 하면 부스팅과 서로 다른
+    데이터를 보게 되어 "모델 차이" 인지 "결측 처리 차이" 인지 구분할 수 없게 된다.
     """
-    n_missing = int(normalized.isna().any(axis=1).sum())
+    missing = normalized.isna().any(axis=1)
+    lo, hi = crop
+    after = int(missing.iloc[lo:hi].sum())
     return {
-        "rows_with_missing": n_missing,
-        "ratio": round(n_missing / max(len(normalized), 1), 6),
+        "rows_before_crop": int(missing.sum()),
+        "rows_after_crop": after,
+        "ratio_after_crop": round(after / max(hi - lo, 1), 6),
     }
 
 

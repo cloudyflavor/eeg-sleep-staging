@@ -58,19 +58,23 @@ def shifted(
 
     호출하는 쪽이 **녹음 하나씩** 넘겨야 한다. 그래야 A 라는 사람의 마지막 에포크가
     B 의 첫 에포크를 참조하는 일이 없다.
+
+    열 이름은 **시간 방향**으로 붙인다. ``shift(1)`` 은 한 칸 전 값을 끌어오므로
+    ``_ep-1``(과거)이고, ``shift(-1)`` 은 다음 값을 끌어오므로 ``_ep+1``(미래)이다.
+    미래를 참조하는 열만 lookahead 가 붙는다.
     """
+    idx = pd.Series(epoch_idx, index=feats.index)
     frames, lookahead = [], {}
     for s in shifts:
         moved = feats.shift(s)
         # 실제 시간 간격이 s 에포크가 맞는지 확인. 아니면 그 행은 결측.
-        gap = pd.Series(epoch_idx, index=feats.index).diff(s)
-        valid = (gap == s).to_numpy()
-        moved = moved.where(valid[:, None])
+        # (판독불가 제거로 생긴 구멍 때문에 한 칸이 30초가 아닐 수 있다)
+        moved[idx.diff(s) != s] = np.nan
 
-        tag = f"_lag{s:+d}"
-        moved = moved.add_suffix(tag)
+        offset = -s  # shift(+1) 이 과거를 끌어온다
+        moved = moved.add_suffix(f"_ep{offset:+d}")
         frames.append(moved)
-        lookahead.update({c: max(s, 0) for c in moved.columns})
+        lookahead.update(dict.fromkeys(moved.columns, max(offset, 0)))
 
     return pd.concat(frames, axis=1), lookahead
 

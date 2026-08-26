@@ -123,12 +123,14 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     lookahead = dict.fromkeys(raw.columns, 0)
     blocks = [raw]
 
+    crop = (int(z["crop_lo"]), int(z["crop_hi"])) if cfg["features"]["crop"] else (0, len(raw))
+
     norm_mode = cfg["features"]["normalize"]
     audit: dict[str, Any] = {"filter": filter_mode, "normalize": norm_mode}
     if norm_mode != "none":
         fn = normalize.expanding_robust if norm_mode == "expanding" else normalize.posthoc_robust
         normed = fn(raw).add_suffix("_norm")
-        audit["missing"] = normalize.missing_report(normed)
+        audit["missing"] = normalize.missing_report(normed, crop)
         # 사후 정규화는 밤 전체를 봐야 한다 → 실시간 불가. 장부에 크게 적어 걸러지게 한다.
         cost = 0 if norm_mode == "expanding" else len(raw)
         lookahead.update(dict.fromkeys(normed.columns, cost))
@@ -156,7 +158,7 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     table = normalize.as_float32(pd.concat(blocks, axis=1))
 
     # ── 여기서 처음으로 자른다 ────────────────────────────────────────────
-    lo, hi = (int(z["crop_lo"]), int(z["crop_hi"])) if cfg["features"]["crop"] else (0, len(table))
+    lo, hi = crop
     table = table.iloc[lo:hi].reset_index(drop=True)
 
     table.insert(0, "stage", labels[lo:hi])
