@@ -5,7 +5,9 @@
 
 features:
   epochs_dir: data/interim/epochs
-  out: data/features/base.parquet
+  # 산출물은 <out_dir>/<설정해시>.parquet 이 된다. 설정과 파일이 1:1 로 묶여
+  # 덮어쓸 일이 없고, 같은 설정을 다시 돌리면 건너뛴다.
+  out_dir: data/features
 
   # none / causal / zerophase
   # 레퍼런스 셋이 셋 다 다르다 (DeepSleepNet 없음 / sleep-linear 인과 / YASA 영위상).

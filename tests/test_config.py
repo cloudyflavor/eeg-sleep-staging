@@ -2,6 +2,8 @@
 
 import textwrap
 
+import pytest
+
 from sleepstage.config import Config, config_hash
 
 
@@ -30,3 +32,26 @@ def test_hash_is_order_independent():
 def test_hash_changes_with_value():
     """값이 바뀌면 해시도 바뀌어야 재실행 판단이 가능하다."""
     assert config_hash({"edge_epochs": 60}) != config_hash({"edge_epochs": 0})
+
+
+def test_override_applies_dotted_keys(tmp_path):
+    p = tmp_path / "cfg.yaml"
+    p.write_text("features:\n  filter: causal\n  crop: true\n", encoding="utf-8")
+    cfg = Config.load(p).override(["features.filter=none", "features.crop=false"])
+    assert cfg["features"] == {"filter": "none", "crop": False}
+
+
+def test_override_rejects_unknown_key(tmp_path):
+    """오타가 조용히 새 키를 만들면 다른 실험이 된 줄도 모른다."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text("features:\n  filter: causal\n", encoding="utf-8")
+    with pytest.raises(KeyError):
+        Config.load(p).override(["features.filtre=none"])
+
+
+def test_override_leaves_original_untouched(tmp_path):
+    p = tmp_path / "cfg.yaml"
+    p.write_text("features:\n  filter: causal\n", encoding="utf-8")
+    cfg = Config.load(p)
+    cfg.override(["features.filter=none"])
+    assert cfg["features"]["filter"] == "causal"

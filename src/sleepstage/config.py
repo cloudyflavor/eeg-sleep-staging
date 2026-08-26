@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass
@@ -46,3 +47,27 @@ class Config:
 
     def __getitem__(self, key: str) -> Any:
         return self.data[key]
+
+    def override(self, pairs: list[str]) -> Config:
+        """``["features.filter=none"]`` 같은 목록을 적용한 새 Config.
+
+        실험 매트릭스를 돌릴 때 YAML 을 조합마다 만들지 않아도 된다.
+        값은 YAML 로 해석하므로 ``true`` / ``30`` / ``[a, b]`` 가 그대로 통한다.
+        """
+        if not pairs:
+            return self
+        data = copy.deepcopy(self.data)
+        for pair in pairs:
+            dotted, _, raw = pair.partition("=")
+            if not _:
+                raise ValueError(f"'키=값' 형식이어야 합니다: {pair!r}")
+            *parents, leaf = dotted.split(".")
+            node = data
+            for part in parents:
+                if part not in node:
+                    raise KeyError(f"설정에 '{dotted}' 가 없습니다 (출처: {self.path})")
+                node = node[part]
+            if leaf not in node:
+                raise KeyError(f"설정에 '{dotted}' 가 없습니다 (출처: {self.path})")
+            node[leaf] = yaml.safe_load(raw)
+        return Config(self.path, data, config_hash(data))

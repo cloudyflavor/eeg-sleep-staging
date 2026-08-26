@@ -108,7 +108,8 @@ def prepare_all(
     out_dir = Path(out_dir or cfg["output"]["dir"])
 
     recs = find_recordings(root)[: limit or None]
-    print(f"녹음 {len(recs)}개  피험자 {len({r.subject for r in recs})}명  →  {out_dir}")
+    n_sub = len({r.subject for r in recs})
+    print(f"녹음 {len(recs)}개  피험자 {n_sub}명  →  {out_dir}", flush=True)
 
     run = partial(prepare_one, cfg=cfg, out_dir=out_dir, overwrite=overwrite)
     if jobs > 1:
@@ -118,7 +119,7 @@ def prepare_all(
         results = [run(r) for r in recs]
 
     for st in results:
-        print(format_audit(st))
+        print(format_audit(st), flush=True)
 
     manifest = _summarise(results, cfg, root, out_dir)
     (out_dir / "manifest.json").write_text(

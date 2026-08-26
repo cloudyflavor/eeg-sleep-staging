@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from sleepstage.features.context import shifted
+from sleepstage.features.normalize import MIN_PERIODS, expanding_robust
 from sleepstage.io.edf import expand_annotations, find_recordings
 from sleepstage.preprocess.epochs import DROP, crop_bounds, epoch_signal, quality_metrics, to_codes
 
@@ -129,3 +132,43 @@ def test_find_recordings_rejects_unknown_filename(tmp_path):
     _touch(tmp_path, "WEIRD-PSG.edf")
     with pytest.raises(ValueError, match="파일명 형식"):
         find_recordings(tmp_path)
+
+
+# ── 특징 추출 ──────────────────────────────────────────────────────────────
+
+
+def test_shift_marks_only_future_columns_with_lookahead():
+    """shift(+1) 은 과거를 끌어온다. 부호를 반대로 적으면 미래를 보는 특징이
+    lookahead 0 으로 기록돼 '실시간 가능' 이라고 잘못 보고하게 된다."""
+    feats = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 5.0]})
+    out, lookahead = shifted(feats, np.arange(5), shifts=(-1, 1))
+
+    assert lookahead["x_ep-1"] == 0  # 과거 참조 — 실시간 가능
+    assert lookahead["x_ep+1"] == 1  # 미래 참조 — 1 에포크 지연 필요
+    assert out.loc[2, "x_ep-1"] == 2.0  # 한 칸 전 값
+    assert out.loc[2, "x_ep+1"] == 4.0  # 한 칸 뒤 값
+
+
+def test_shift_leaves_gaps_missing():
+    """판독불가 제거로 생긴 구멍을 이웃인 척하면 안 된다."""
+    feats = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+    out, _ = shifted(feats, np.array([10, 11, 20]), shifts=(1,))  # 11 → 20 은 9칸 차이
+
+    assert out.loc[1, "x_ep-1"] == 1.0  # 10 → 11 은 연속
+    assert pd.isna(out.loc[2, "x_ep-1"])  # 11 → 20 은 구멍
+
+
+def test_expanding_normalization_uses_only_the_past():
+    """뒤쪽 값이 바뀌어도 앞쪽 정규화 결과는 그대로여야 한다."""
+    a = pd.DataFrame({"x": np.arange(60, dtype=float)})
+    b = a.copy()
+    b.loc[50:, "x"] = 999.0
+
+    na, nb = expanding_robust(a), expanding_robust(b)
+    pd.testing.assert_series_equal(na["x"][:50], nb["x"][:50])
+
+
+def test_expanding_normalization_is_missing_during_warmup():
+    out = expanding_robust(pd.DataFrame({"x": np.arange(30, dtype=float)}))
+    assert out["x"][: MIN_PERIODS - 1].isna().all()
+    assert out["x"][MIN_PERIODS:].notna().all()

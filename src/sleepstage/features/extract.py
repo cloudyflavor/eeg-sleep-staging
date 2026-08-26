@@ -10,17 +10,33 @@
 """
 
 import json
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from sleepstage.config import Config
+from sleepstage.config import Config, config_hash
 from sleepstage.features import context, filters, normalize, spectral, temporal
 
 #: 클래스 이름. 라벨 정수의 순서와 같다.
 STAGE_NAMES = ("W", "LS", "DS", "R")
+
+#: 산출물의 정체성을 정하는 설정. **경로는 넣지 않는다** — 같은 처리를 다른 폴더에
+#: 내보냈다고 해서 다른 데이터가 되는 게 아니다.
+SETTING_KEYS = ("filter", "normalize", "context", "crop", "distance_features")
+
+
+def settings_hash(cfg: Config) -> str:
+    """이 설정이 만들 특징 표의 식별자."""
+    return config_hash({k: cfg["features"][k] for k in SETTING_KEYS})
+
+
+def output_path(cfg: Config) -> Path:
+    """``<out_dir>/<설정해시>.parquet``. 설정과 산출물이 1:1 로 묶인다."""
+    return Path(cfg["features"]["out_dir"]) / f"{settings_hash(cfg)}.parquet"
 
 
 def epoch_features(
@@ -163,29 +179,50 @@ def extract_all(
     epochs_dir: str | Path | None = None,
     out_path: str | Path | None = None,
     limit: int | None = None,
+    jobs: int = 1,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """전체 녹음의 특징을 parquet 하나로. 피험자 분할은 ``subject`` 열로 하므로 나눌 필요가 없다."""
     epochs_dir = Path(epochs_dir or cfg["features"]["epochs_dir"])
-    out_path = Path(out_path or cfg["features"]["out"])
+    out_path = Path(out_path) if out_path else output_path(cfg)
+    manifest_path = out_path.with_suffix(".manifest.json")
 
-    files = sorted(epochs_dir.glob("*.npz"))[: limit or None]
+    files = sorted(epochs_dir.glob("*.npz"))
     if not files:
         raise FileNotFoundError(f"{epochs_dir} 에 *.npz 가 없습니다")
-    print(f"녹음 {len(files)}개  →  {out_path}")
+    n_total = len(files)
+    files = files[: limit or None]
 
-    tables, audits, lookahead = [], [], {}
-    for path in files:
-        table, la, audit = build_recording(path, cfg)
+    if not overwrite and _is_complete(manifest_path, settings_hash(cfg), n_total):
+        print(f"건너뜀 — 같은 설정의 산출물이 이미 있습니다: {out_path}", flush=True)
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    print(f"녹음 {len(files)}개  →  {out_path}", flush=True)
+
+    run = partial(build_recording, cfg=cfg)
+    if jobs > 1:
+        with ProcessPoolExecutor(max_workers=jobs) as ex:
+            results = list(ex.map(run, files))
+    else:
+        results = [run(f) for f in files]
+
+    tables, audits, lookahead = [], [], None
+    for table, la, audit in results:
+        if lookahead is not None and la.keys() != lookahead.keys():
+            # 채널 수가 다른 녹음이 섞이면 장부가 조용히 어긋난다
+            raise ValueError(f"{audit['key']} 의 열 구성이 다릅니다")
         tables.append(table)
         audits.append(audit)
-        lookahead = la  # 모든 녹음이 같은 열 구성이다
-        print(f"  {audit['key']:>9}  {audit['n_epochs']:>5} 에포크  특징 {audit['n_features']}")
+        lookahead = la
+        n_feat = audit["n_features"]
+        print(f"  {audit['key']:>9}  {audit['n_epochs']:>5} 에포크  특징 {n_feat}", flush=True)
 
     full = pd.concat(tables, ignore_index=True)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     full.to_parquet(out_path, index=False)
 
     manifest = {
+        "settings_hash": settings_hash(cfg),
         "config_hash": cfg.hash,
         "n_recordings": len(files),
         "n_subjects": int(full["subject"].nunique()),
@@ -197,7 +234,16 @@ def extract_all(
         "bytes": out_path.stat().st_size,
         "recordings": audits,
     }
-    out_path.with_suffix(".manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
+
+
+def _is_complete(manifest_path: Path, want_hash: str, n_total: int) -> bool:
+    """같은 설정으로 **전체**를 이미 돌렸는지. 부분 실행(``--limit``)은 완성으로 치지 않는다."""
+    if not manifest_path.exists():
+        return False
+    try:
+        m = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return m.get("settings_hash") == want_hash and m.get("n_recordings") == n_total
