@@ -155,10 +155,10 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
 
 
 def _run_name(features_path: Path, train_params: dict) -> str:
-    """사람이 읽는 실행 이름: 'causal-smooth · histgb'. 설정을 못 읽으면 해시로."""
+    """사람이 읽는 실행 이름: 'causal-smooth_histgb'. 설정을 못 읽으면 해시로."""
     st = feature_settings(features_path)
     if st:
-        return f"{st.get('filter', '?')}-{st.get('context', '?')} · {train_params['model']}"
+        return f"{st.get('filter', '?')}-{st.get('context', '?')}_{train_params['model']}"
     return features_path.stem
 
 
