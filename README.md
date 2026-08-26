@@ -104,15 +104,14 @@ docs/                설계 근거와 조사 기록
 
 | 문서 | 내용 |
 |---|---|
-| `00-glossary.md` | 용어·모델·데이터셋 이름 정리 |
-| `01-our-data.md` | 보유 데이터 실측 프로파일 |
-| `02-references.md` | 문헌 조사 |
-| `03-reference-repos.md` | YASA·sleep-linear 코드 분석 |
-| `04-pipeline-repos.md` | DeepSleepNet·U-Time·SLEEPYLAND 분석 |
-| `05-job-market.md` | 한국 헬스케어 ML 채용시장 |
-| `06-preprocessing-stage1.md` | **1단계 결정·근거·실행 결과** |
-| `07-preprocessing-stage2.md` | 2단계 문헌 근거 (결정 전) |
-| `08-experiment-plan.md` | 실험 계획과 재현성 |
+| [`docs/00-glossary.md`](docs/00-glossary.md) | 용어·모델·데이터셋 이름 |
+| [`docs/01-data.md`](docs/01-data.md) | 보유 데이터 실측 |
+| [`docs/02-prior-art.md`](docs/02-prior-art.md) | 문헌·레포 분석 |
+| [`docs/03-stage1.md`](docs/03-stage1.md) | **1단계 결정·근거·실행 결과** |
+| [`docs/04-stage2.md`](docs/04-stage2.md) | 2단계 결정 (진행 중) |
+| [`docs/05-experiments.md`](docs/05-experiments.md) | 실험 계획과 재현성 |
+
+색인과 열려 있는 결정은 [`docs/README.md`](docs/README.md).
 
 ## 이 모델이 하는 일과 하지 않는 일
 
