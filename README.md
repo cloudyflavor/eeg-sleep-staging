@@ -60,56 +60,74 @@ EEG 단독 4-class 수면 단계 분류. **재현 가능한 전처리·학습·�
 
 ```bash
 uv venv --python 3.12
-uv pip install -e ".[boosting,dev]"
+uv pip install -e ".[boosting-full,tracking,analysis,dev]"
+uv run pytest
 ```
 
-동작 확인:
+extras 는 목적별로 나눠 뒀다.
+
+| | 내용 |
+|---|---|
+| `boosting` | catboost (macOS 에서 추가 설치 없이 동작) |
+| `boosting-full` | + xgboost, lightgbm — **macOS 는 `brew install libomp` 필요** |
+| `tracking` | mlflow |
+| `analysis` | matplotlib, xlrd |
+| `deep` | torch (딥러닝 단계) |
+| `dev` | pytest, ruff |
+
+## 사용
 
 ```bash
-.venv/bin/sleepstage env      # 어떤 라이브러리가 실제로 import 되는지
-.venv/bin/pytest
+sleepstage config configs/preprocess/base.yaml   # 설정 확인 + 해시
+sleepstage prepare --config configs/preprocess/base.yaml --jobs 8
 ```
 
-### macOS 주의
-
-`xgboost` 와 `lightgbm` 은 OpenMP 런타임(`libomp`)이 있어야 import 된다. 없으면 실패한다.
-
-```bash
-brew install libomp            # 필요할 때만
-uv pip install -e ".[boosting-full,dev]"
-```
-
-`scikit-learn` 의 `HistGradientBoosting` 과 `catboost` 는 **libomp 없이 동작한다.**
+`prepare` 는 설정 해시를 산출물에 저장하고, 재실행 시 해시가 같으면 건너뛴다.
 
 ## 구조
 
 ```
 src/sleepstage/
+├── cli.py           단일 진입점 (구현된 명령만 등록)
 ├── config.py        설정 로딩 + 해시 (재현성의 축)
-├── cli.py           단일 진입점
-├── io/              EDF 읽기, 파일 짝짓기
-├── preprocess/      라벨 매핑, 에포크화, 절단, 품질 지표
-├── features/        대역파워·시간영역 특징
-├── models/          선형 / 부스팅 / 앙상블
-└── evaluation/      교차검증, 지표, 예측 저장
+├── io/edf.py        파일 짝짓기, EDF 읽기, 시작시각 검증
+└── preprocess/      라벨 코드화, 에포크화, 절단 경계, 품질 지표
 configs/             실험 하나 = YAML 하나
 tests/
 docs/                설계 근거와 조사 기록
-runs/                실험 산출물
 ```
+
+2단계 이후(`features` / `split` / `train` / `evaluate`)는 아직 없다.
+**만들 때 디렉터리를 만든다** — 빈 자리를 미리 잡아두지 않는다.
 
 ## 문서
 
 | 문서 | 내용 |
 |---|---|
-| `docs/00-glossary.md` | 용어·모델·데이터셋 이름 정리 |
-| `docs/01-our-data.md` | 보유 데이터 실측 프로파일 |
-| `docs/02-references.md` | 문헌 조사 |
-| `docs/05-reference-repos.md` | YASA·sleep-linear 코드 분석 |
-| `docs/06-pipeline-repos.md` | DeepSleepNet·U-Time·SLEEPYLAND 분석 |
-| `docs/08-preprocessing-design.md` | 전처리 결정 지점과 선택지 |
-| `docs/09-preprocessing-proposal.md` | 전처리 제안과 근거 |
-| `docs/10-experiment-plan.md` | 실험 계획과 재현성 |
+| `00-glossary.md` | 용어·모델·데이터셋 이름 정리 |
+| `01-our-data.md` | 보유 데이터 실측 프로파일 |
+| `02-references.md` | 문헌 조사 |
+| `03-reference-repos.md` | YASA·sleep-linear 코드 분석 |
+| `04-pipeline-repos.md` | DeepSleepNet·U-Time·SLEEPYLAND 분석 |
+| `05-job-market.md` | 한국 헬스케어 ML 채용시장 |
+| `06-preprocessing-stage1.md` | **1단계 결정·근거·실행 결과** |
+| `07-preprocessing-stage2.md` | 2단계 문헌 근거 (결정 전) |
+| `08-experiment-plan.md` | 실험 계획과 재현성 |
+
+## 이 모델이 하는 일과 하지 않는 일
+
+**만드는 것은 수면 단계 분류기 하나다. 질병 판단은 하지 않는다.**
+
+```
+EEG  →  [수면 단계 분류]  →  hypnogram  →  임상 지표  →  의사가 판단
+```
+
+그래서 질병 라벨이 붙은 데이터가 필요 없다. 질병별 양상(예: 기면증의 REM 잠복기 단축)은
+지표 옆에 붙이는 **문헌 지식**이지 학습 대상이 아니다.
+
+EEG 만 쓰는 게 단점만은 아니다. **1~2채널이면 헤드밴드로 잴 수 있다.** 병원 PSG 는
+비싸고 하룻밤밖에 못 재는데, "집에서 여러 밤 재서 수면 구조의 추이를 본다" 는 건
+PSG 가 구조적으로 못 하는 일이다.
 
 ## 한계
 

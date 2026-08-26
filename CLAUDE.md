@@ -3,7 +3,7 @@
 EEG만으로 수면 단계를 자동 분류하는 모델 개발.
 최종 산출물은 **재현 가능한 전처리·학습·평가 파이프라인**이며, 선택마다 근거와 트레이드오프를 남기는 것이 목적이다.
 
-> **상세 설계 문서는 로컬 저장소 `docs/`에 있다** (`~/Documents/dev/eeg-sleep-staging/docs/`).
+> **상세 설계 문서는 `docs/` 에 있다** — 저장소에 포함돼 있어 서버에도 같이 있다.
 > 이 파일은 서버 데이터의 명세와 확정 사항만 다룬다.
 
 ---
@@ -19,7 +19,7 @@ EEG만으로 수면 단계를 자동 분류하는 모델 개발.
 | **평가** | 피험자 단위 교차검증 | 아래 "분할 시 주의" 참고 |
 
 **진행 상태**: 전처리를 처음부터 재설계 중. 이전에 작성한 특징 추출·학습 코드는 전부 삭제했다.
-설계 선택지는 `docs/08-preprocessing-design.md` 참고.
+1단계 결정과 근거는 `docs/06-preprocessing-stage1.md` 참고.
 
 ---
 
@@ -208,20 +208,25 @@ sleepstage/
         └── manifest.json             # 녹음별 감사 기록
 ```
 
-### ⚠️ 서버에서 코드를 편집하지 말 것
+### 코드 동기화 — git 으로 양방향
 
-코드의 정본은 **로컬 저장소**이고 GitHub `cloudyflavor/eeg-sleep-staging` (비공개) 에 있다.
-서버는 실행 환경일 뿐이고 git 저장소가 아니다 — **공용 서버라 자격증명을 두지 않는다.**
+**서버도 git 저장소다.** 맥과 SSH 로 직접 주고받는다.
+GitHub 푸시는 맥에서만 한다 — **공용 서버에 계정 정보를 두지 않는다.**
 
 ```bash
-# 로컬에서 (정본 → 서버). --delete 라서 서버 쪽 수정은 조용히 사라진다
-rsync -a --delete --exclude='__pycache__' --exclude='*.pyc' \
-      src configs tests pyproject.toml README.md biglab:~/documents/chaerin/sleepstage/
+# 맥에서
+git push biglab main      # 맥 → 서버 (서버 작업트리까지 갱신됨)
+git pull biglab main      # 서버 → 맥
+git push origin main      # 맥 → GitHub (비공개)
+
+# 서버에서
+git commit -am "..."      # 커밋만. push 는 맥에서 당겨간다
 ```
 
-`docs/` 는 로컬에만, `data/ .venv/ CLAUDE.md` 는 서버에만 있다.
-저장소가 공개로 바뀌면 rsync 대신 서버에서 `git clone` → `git pull` 로 전환할 수 있다
-(공개 저장소는 읽기에 자격증명이 필요 없다).
+서버 저장소에 `receive.denyCurrentBranch = updateInstead` 를 걸어둬서
+푸시가 작업트리까지 갱신한다. 단, **서버에 커밋 안 된 수정이 있으면 푸시가 거부된다** — 정상이다.
+
+`data/` 와 `.venv/` 는 `.gitignore` 에 있어 서버에만 존재한다. 나머지는 세 곳이 같다.
 
 ### 1단계 산출물 (`data/interim/epochs/*.npz`)
 
@@ -265,13 +270,14 @@ rsync -a --delete --exclude='__pycache__' --exclude='*.pyc' \
 
 **공용 서버다. `~/documents/chaerin/` 밖은 건드리지 말 것.**
 
-작업 루프: 코드는 로컬(macOS)에서 작성 → rsync/scp 업로드 → `ssh biglab '...'` 실행 → 로그·결과만 회수.
-대용량 데이터는 로컬로 통째 전송하지 않는다. 특징 행렬 수준(수백 MB)은 전송해도 된다.
+**작업은 서버에서 한다.** 데이터·GPU·환경이 전부 여기 있다.
+맥은 git 노드일 뿐이고, 완성되면 거기서 GitHub 에 올린다.
+대용량 데이터는 맥으로 통째 전송하지 않는다. 특징 행렬 수준(수백 MB)은 괜찮다.
 
 ### 환경
 
 - `.venv/` — Python 3.12.12. **2026-08-26에 새로 만들었다.**
-  `uv pip install -e ".[boosting-full,tracking,dev]"` 로 설치.
+  `uv pip install -e ".[boosting-full,tracking,analysis,deep,dev]"` 로 설치.
   numpy 2.5.2 / scipy 1.18.1 / mne 1.12.1 / pandas 2.3.3 / pyarrow 25.0.1 / sklearn 1.9.0 /
   **catboost 1.2.10 · xgboost 3.4.1 · lightgbm 4.7.0 · mlflow 3.15.1** / pytest · ruff
 - uv 는 `~/.local/bin/uv` (PATH 에 없으면 직접 지정)

@@ -7,6 +7,7 @@ __pycache__/
 # 데이터·산출물 (서버에 있거나 재생성 가능)
 data/
 runs/
+mlruns/
 *.npz
 *.parquet
 
