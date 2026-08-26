@@ -25,6 +25,13 @@ boosting-full = ["catboost>=1.2", "xgboost>=2.1", "lightgbm>=4.5"]
 
 tracking = ["mlflow>=2.16"]
 
+# 분석·그림. xlrd 는 SC-subjects.xls(피험자 나이·성별) 를 읽는 데 필요하다
+# — xlrd 2.0 부터는 .xlsx 를 버리고 .xls 전용이 되어 우리 용도에 정확히 맞는다.
+analysis = ["matplotlib>=3.9", "xlrd>=2.0"]
+
+# 딥러닝 단계용. 서버 GPU 는 RTX 2080 Ti (Turing) 라 bf16 이 없고 fp16 만 된다
+deep = ["torch>=2.5"]
+
 dev = [
     "pytest>=8.3",
     "pytest-cov>=5.0",
