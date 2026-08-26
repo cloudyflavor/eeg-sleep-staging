@@ -108,7 +108,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
     from sleepstage.evaluation.train import run_cv
 
     cfg = Config.load(args.config).override(args.set or [])
-    r = run_cv(cfg)
+    r = run_cv(cfg, overwrite=args.overwrite)
     m = r["pooled"]
     print(
         f"\nrun {r['run_id']}  →  {r['out_dir']}\n"
@@ -182,6 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     p4 = sub.add_parser("train", help="학습 + 교차검증 (4단계)")
     p4.add_argument("--config", required=True)
     p4.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
+    p4.add_argument("--overwrite", action="store_true", help="산출물이 있어도 다시 학습")
     p4.set_defaults(func=_cmd_train)
 
     p5 = sub.add_parser("curve", help="러닝 커브 (피험자 수 대비 성능)")

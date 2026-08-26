@@ -8,6 +8,7 @@ __pycache__/
 data/
 runs/
 mlruns/
+mlflow.db
 logs/
 *.npz
 *.parquet

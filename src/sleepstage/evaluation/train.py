@@ -74,16 +74,21 @@ def _environment() -> dict[str, str]:
     }
 
 
-def run_cv(cfg: Config) -> dict[str, Any]:
-    """10-fold 교차검증. fold 별 예측을 모아 pooled 지표까지 낸다."""
+def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
+    """10-fold 교차검증. 같은 run_id 의 완료 산출물이 있으면 건너뛴다."""
     p = cfg["train"]
     features_path = Path(p["features"])
+    rid = run_id(cfg, features_path)
+    out_dir = Path(p["out_dir"]) / rid
+
+    done = out_dir / "metrics.json"
+    if done.exists() and not overwrite:
+        print(f"건너뜀 — 같은 설정의 실행이 이미 있습니다: {out_dir}", flush=True)
+        return {"run_id": rid, "out_dir": str(out_dir), **json.loads(done.read_text())}
+
     table, load_info = load_table(features_path, p["drop_missing"])
     folds = load_folds(p["splits"])
     feature_cols = [c for c in table.columns if c not in META_COLS]
-
-    rid = run_id(cfg, features_path)
-    out_dir = Path(p["out_dir"]) / rid
     out_dir.mkdir(parents=True, exist_ok=True)
 
     predictions, fold_metrics = [], []
@@ -144,22 +149,21 @@ def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> Non
         return
     try:
         import mlflow
-    except ImportError:
-        print("mlflow 미설치 — 파일 기록만 남깁니다", flush=True)
-        return
 
-    mlflow.set_tracking_uri("file:mlruns")
-    mlflow.set_experiment("sleepstage")
-    with mlflow.start_run(run_name=manifest["run_id"]):
-        mlflow.log_params(
-            {
-                **{k: v for k, v in cfg["train"].items() if not isinstance(v, dict)},
-                "features_file": manifest["features_file"],
-                "n_features": manifest["n_features"],
-            }
-        )
-        mlflow.log_metrics(pooled)
-        mlflow.log_artifacts(str(out_dir))
+        mlflow.set_tracking_uri("sqlite:///mlflow.db")
+        mlflow.set_experiment("sleepstage")
+        with mlflow.start_run(run_name=manifest["run_id"]):
+            mlflow.log_params(
+                {
+                    **{k: v for k, v in cfg["train"].items() if not isinstance(v, dict)},
+                    "features_file": manifest["features_file"],
+                    "n_features": manifest["n_features"],
+                }
+            )
+            mlflow.log_metrics(pooled)
+            mlflow.log_artifacts(str(out_dir))
+    except Exception as e:  # noqa: BLE001 — 조회 계층이 실행을 죽이면 안 된다
+        print(f"mlflow 기록 실패 (runs/ 는 온전함): {str(e).splitlines()[0][:80]}", flush=True)
 
 
 def learning_curve(cfg: Config, counts: list[int], n_eval_folds: int = 3) -> dict[str, Any]:
