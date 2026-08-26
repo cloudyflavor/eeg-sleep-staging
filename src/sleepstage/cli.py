@@ -91,6 +91,26 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 1 if r["problems"] else 0
 
 
+def _cmd_split(args: argparse.Namespace) -> int:
+    """3단계 — 피험자 단위 fold 배정을 파일로 고정."""
+    from sleepstage.evaluation.split import write_folds
+
+    m = write_folds(args.features, args.out, n_splits=args.folds, seed=args.seed)
+    print(f"피험자 {m['n_subjects']}명 · 에포크 {m['n_epochs']:,} → {m['n_splits']} fold")
+    print(f"저장 {args.out}\n")
+    print("fold  평가 피험자  평가 에포크   W      LS     DS     R")
+    for i, d in enumerate(m["diagnostics"]["folds"]):
+        r = d["test_class_ratio"]
+        print(
+            f"  {i:>2}  {d['n_test_subjects']:>10}  {d['n_test_epochs']:>10,}"
+            f"  {r['W']:.3f}  {r['LS']:.3f}  {r['DS']:.3f}  {r['R']:.3f}"
+        )
+    print("\n클래스 비율 폭 (fold 간 최대−최소)")
+    for stage, v in m["diagnostics"]["class_ratio_spread"].items():
+        print(f"  {stage:<3} {v['min']:.3f} ~ {v['max']:.3f}   폭 {v['range']:.3f}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -130,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--epochs", help="설정의 output.dir 을 덮어씀")
     v.add_argument("--samples", type=int, default=3, help="녹음당 신호 대조 에포크 수")
     v.set_defaults(func=_cmd_verify)
+
+    p3 = sub.add_parser("split", help="피험자 단위 fold 배정을 파일로 고정 (3단계)")
+    p3.add_argument("--features", required=True, help="특징 parquet 경로")
+    p3.add_argument("--out", required=True, help="fold JSON 저장 경로")
+    p3.add_argument("--folds", type=int, default=10)
+    p3.add_argument("--seed", type=int, default=0)
+    p3.set_defaults(func=_cmd_split)
 
     return p
 
