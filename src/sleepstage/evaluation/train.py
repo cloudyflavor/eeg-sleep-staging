@@ -43,6 +43,15 @@ def run_id(cfg: Config, features_path: Path) -> str:
     return config_hash({"features": features_path.stem, "train": cfg["train"]})
 
 
+def feature_settings(features_path: Path) -> dict:
+    """특징 parquet 의 사이드카 매니페스트에서 전처리 설정을 읽는다. 없으면 빈 dict."""
+    try:
+        side = features_path.with_suffix(".manifest.json")
+        return json.loads(side.read_text(encoding="utf-8"))["settings"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return {}
+
+
 def load_table(features_path: Path, drop_missing: bool) -> tuple[pd.DataFrame, dict[str, Any]]:
     table = pd.read_parquet(features_path)
     info = {"n_rows": len(table), "n_dropped_missing": 0}
@@ -129,7 +138,9 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     manifest = {
         "run_id": rid,
+        "run_name": _run_name(features_path, p),
         "train": p,
+        "feature_settings": feature_settings(features_path),
         "features_file": features_path.name,
         **load_info,
         "n_features": len(feature_cols),
@@ -143,6 +154,14 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     return {"run_id": rid, "out_dir": str(out_dir), **metrics}
 
 
+def _run_name(features_path: Path, train_params: dict) -> str:
+    """사람이 읽는 실행 이름: 'causal-smooth · histgb'. 설정을 못 읽으면 해시로."""
+    st = feature_settings(features_path)
+    if st:
+        return f"{st.get('filter', '?')}-{st.get('context', '?')} · {train_params['model']}"
+    return features_path.stem
+
+
 def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> None:
     """조회 계층. 실패해도 runs/ 산출물은 이미 완성돼 있다."""
     if not cfg["train"].get("mlflow"):
@@ -152,12 +171,14 @@ def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> Non
 
         mlflow.set_tracking_uri("sqlite:///mlflow.db")
         mlflow.set_experiment("sleepstage")
-        with mlflow.start_run(run_name=manifest["run_id"]):
+        with mlflow.start_run(run_name=manifest["run_name"]):
             mlflow.log_params(
                 {
                     **{k: v for k, v in cfg["train"].items() if not isinstance(v, dict)},
+                    **manifest["feature_settings"],
                     "features_file": manifest["features_file"],
                     "n_features": manifest["n_features"],
+                    "run_id": manifest["run_id"],
                 }
             )
             mlflow.log_metrics(pooled)
