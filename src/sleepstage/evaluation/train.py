@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
+from sklearn.utils.class_weight import compute_sample_weight
 
 from sleepstage.config import Config, config_hash
 from sleepstage.evaluation.split import STAGE_NAMES, fold_masks, load_folds
@@ -21,14 +22,88 @@ from sleepstage.evaluation.split import STAGE_NAMES, fold_masks, load_folds
 META_COLS = ("subject", "night", "epoch_idx", "stage")
 
 
+def _majority(p: dict):
+    from sklearn.dummy import DummyClassifier
+
+    return DummyClassifier(strategy="prior")
+
+
+def _logreg(p: dict, penalty: str):
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    # 선형은 스케일에 민감 — 표준화를 파이프라인 안에 넣어 fold 별로 fit 되게 한다
+    solver = "saga" if penalty == "l1" else "lbfgs"
+    return make_pipeline(
+        StandardScaler(),
+        LogisticRegression(penalty=penalty, solver=solver, max_iter=2000, random_state=p["seed"]),
+    )
+
+
 def _histgb(p: dict):
     from sklearn.ensemble import HistGradientBoostingClassifier
 
-    return HistGradientBoostingClassifier(class_weight=p["class_weight"], random_state=p["seed"])
+    return HistGradientBoostingClassifier(random_state=p["seed"])
 
 
-#: 모델 추가는 여기 한 줄.
-MODELS = {"histgb": _histgb}
+def _xgboost(p: dict):
+    from xgboost import XGBClassifier
+
+    return XGBClassifier(
+        random_state=p["seed"], n_jobs=8, tree_method="hist", eval_metric="mlogloss"
+    )
+
+
+def _lightgbm(p: dict):
+    from lightgbm import LGBMClassifier
+
+    return LGBMClassifier(random_state=p["seed"], n_jobs=8, verbosity=-1)
+
+
+def _catboost(p: dict):
+    from catboost import CatBoostClassifier
+
+    return CatBoostClassifier(
+        random_seed=p["seed"], thread_count=8, verbose=False, loss_function="MultiClass"
+    )
+
+
+#: 모델 추가는 여기 한 줄. 클래스 불균형은 공통으로 sample_weight 로 준다.
+MODELS = {
+    "majority": _majority,
+    "logreg_l2": lambda p: _logreg(p, "l2"),
+    "logreg_l1": lambda p: _logreg(p, "l1"),
+    "histgb": _histgb,
+    "xgboost": _xgboost,
+    "lightgbm": _lightgbm,
+    "catboost": _catboost,
+}
+
+
+def _fit(model, X, y, sample_weight):
+    """sample_weight 를 파이프라인이면 마지막 단계로 전달한다."""
+    from sklearn.pipeline import Pipeline
+
+    if sample_weight is None:
+        model.fit(X, y)
+    elif isinstance(model, Pipeline):
+        last = model.steps[-1][0]
+        model.fit(X, y, **{f"{last}__sample_weight": sample_weight})
+    else:
+        model.fit(X, y, sample_weight=sample_weight)
+    return model
+
+
+def _importance(model) -> np.ndarray | None:
+    """모델이 공짜로 주는 변수 중요도. 선형은 |계수| 평균, 트리는 자체 중요도."""
+    from sklearn.pipeline import Pipeline
+
+    est = model.steps[-1][1] if isinstance(model, Pipeline) else model
+    if hasattr(est, "coef_"):
+        return np.abs(est.coef_).mean(axis=0)
+    imp = getattr(est, "feature_importances_", None)
+    return np.asarray(imp).ravel() if imp is not None else None
 
 
 def make_model(cfg: Config):
@@ -100,17 +175,25 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     feature_cols = [c for c in table.columns if c not in META_COLS]
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    predictions, fold_metrics = [], []
+    # numpy 로 한 번만 변환 — 트리 라이브러리들의 열 이름 제약도 피한다
+    X_all = table[feature_cols].to_numpy(dtype=np.float32)
     y_all = table["stage"].to_numpy()
+
+    predictions, fold_metrics, importances = [], [], []
     t0 = time.perf_counter()
 
     for i, fold in enumerate(folds):
         train_mask, test_mask = fold_masks(table, fold)
-        model = make_model(cfg)
-        model.fit(table.loc[train_mask, feature_cols], y_all[train_mask])
+        sw = None
+        if p["class_weight"] == "balanced":
+            sw = compute_sample_weight("balanced", y_all[train_mask])
+        model = _fit(make_model(cfg), X_all[train_mask], y_all[train_mask], sw)
+        imp = _importance(model)
+        if imp is not None:
+            importances.append(imp)
 
         # 열 순서는 model.classes_ 기준 — 학습 fold 에 없던 클래스가 있어도 어긋나지 않게 맞춘다
-        raw_proba = model.predict_proba(table.loc[test_mask, feature_cols])
+        raw_proba = model.predict_proba(X_all[test_mask])
         proba = np.zeros((len(raw_proba), len(STAGE_NAMES)), dtype=np.float32)
         proba[:, model.classes_.astype(int)] = raw_proba
         pred = proba.argmax(axis=1)
@@ -129,6 +212,10 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     elapsed = time.perf_counter() - t0
 
     pred_df.to_parquet(out_dir / "predictions.parquet", index=False)
+    if importances:
+        pd.DataFrame(
+            {"feature": feature_cols, "importance": np.mean(importances, axis=0)}
+        ).sort_values("importance", ascending=False).to_csv(out_dir / "importance.csv", index=False)
     metrics = {
         "pooled": pooled,
         "folds": fold_metrics,
@@ -194,6 +281,7 @@ def learning_curve(cfg: Config, counts: list[int], n_eval_folds: int = 3) -> dic
     table, _ = load_table(features_path, p["drop_missing"])
     folds = load_folds(p["splits"])[:n_eval_folds]
     feature_cols = [c for c in table.columns if c not in META_COLS]
+    X_all = table[feature_cols].to_numpy(dtype=np.float32)
     y_all = table["stage"].to_numpy()
 
     points = []
@@ -205,20 +293,22 @@ def learning_curve(cfg: Config, counts: list[int], n_eval_folds: int = 3) -> dic
         for n in counts:
             subset = set(order[:n])
             train_mask = table["subject"].isin(subset).to_numpy()
-            model = make_model(cfg)
+            sw = None
+            if p["class_weight"] == "balanced":
+                sw = compute_sample_weight("balanced", y_all[train_mask])
             t0 = time.perf_counter()
-            model.fit(table.loc[train_mask, feature_cols], y_all[train_mask])
+            model = _fit(make_model(cfg), X_all[train_mask], y_all[train_mask], sw)
             point = {
                 "fold": i,
                 "n_subjects": n,
                 "n_train_epochs": int(train_mask.sum()),
                 "fit_sec": round(time.perf_counter() - t0, 1),
-                "train_macro_f1": _metrics(
-                    y_all[train_mask], model.predict(table.loc[train_mask, feature_cols])
-                )["macro_f1"],
-                "test_macro_f1": _metrics(
-                    y_all[test_mask], model.predict(table.loc[test_mask, feature_cols])
-                )["macro_f1"],
+                "train_macro_f1": _metrics(y_all[train_mask], model.predict(X_all[train_mask]))[
+                    "macro_f1"
+                ],
+                "test_macro_f1": _metrics(y_all[test_mask], model.predict(X_all[test_mask]))[
+                    "macro_f1"
+                ],
             }
             points.append(point)
             print(
