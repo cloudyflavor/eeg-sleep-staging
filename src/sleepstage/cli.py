@@ -50,6 +50,25 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_features(args: argparse.Namespace) -> int:
+    """2단계 — 에포크 npz → 특징 parquet."""
+    from sleepstage.features.extract import extract_all
+
+    cfg = Config.load(args.config)
+    print(f"설정 {cfg.path}  해시 {cfg.hash}")
+    m = extract_all(cfg, epochs_dir=args.epochs, out_path=args.out, limit=args.limit)
+    s = m["settings"]
+    print(
+        f"\n녹음 {m['n_recordings']}개  피험자 {m['n_subjects']}명\n"
+        f"에포크 {m['n_epochs']:,}  특징 {m['n_features']}개\n"
+        f"설정   필터 {s['filter']} / 정규화 {s['normalize']}"
+        f" / 문맥 {s['context']} / 절단 {s['crop']}\n"
+        f"클래스 {m['class_counts']}\n"
+        f"용량   {m['bytes'] / 1e6:.1f} MB"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -67,6 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     p1.add_argument("--jobs", type=int, default=1, help="병렬 프로세스 수")
     p1.add_argument("--overwrite", action="store_true", help="설정이 같아도 다시 만듦")
     p1.set_defaults(func=_cmd_prepare)
+
+    p2 = sub.add_parser("features", help="에포크 npz → 특징 parquet (2단계)")
+    p2.add_argument("--config", required=True)
+    p2.add_argument("--epochs", help="설정의 features.epochs_dir 을 덮어씀")
+    p2.add_argument("--out", help="설정의 features.out 을 덮어씀")
+    p2.add_argument("--limit", type=int, help="앞에서 N개만 (시험 실행용)")
+    p2.set_defaults(func=_cmd_features)
 
     return p
 
