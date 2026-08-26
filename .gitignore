@@ -1,0 +1,25 @@
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# 데이터·산출물 (서버에 있거나 재생성 가능)
+data/
+runs/
+*.npz
+*.parquet
+
+# 참조용으로 클론한 남의 레포
+Sleep-Stage-Classification/
+
+# 서버 접속 정보가 들어 있음 — 공개 저장소에 올리면 안 됨
+HANDOVER.md
+
+# 도구
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+.claude/settings.local.json

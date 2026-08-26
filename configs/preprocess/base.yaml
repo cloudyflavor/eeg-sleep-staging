@@ -1,0 +1,39 @@
+# 1단계 전처리 — EDF → 에포크 npz
+#
+# 원칙: 되돌릴 수 없는 처리를 여기서 하지 않는다.
+#   지우는 것    = 판독불가 에포크뿐 (정답이 없어 학습·평가 어디에도 못 씀)
+#   표시만 하는 것 = wake 절단 경계, 아티팩트 지표
+#   아예 안 하는 것 = 필터·정규화 (2단계에서 A/B 대상)
+
+dataset:
+  name: edfx-sc
+  root: data/raw/edfx/physionet.org/files/sleep-edfx/1.0.0/sleep-cassette
+  channels: ["EEG Fpz-Cz", "EEG Pz-Oz"]
+
+epoch:
+  seconds: 30
+  sfreq: 100.0          # EDFX EEG 는 100 Hz. 다르면 실패시킨다 (조용한 리샘플링 금지)
+
+labels:
+  names: ["W", "LS", "DS", "R"]
+  map:
+    "Sleep stage W": 0
+    "Sleep stage 1": 1    # LS = N1 + N2
+    "Sleep stage 2": 1
+    "Sleep stage 3": 2    # DS = N3 + N4 (R&K 4단계를 AASM N3로 통합)
+    "Sleep stage 4": 2
+    "Sleep stage R": 3
+  # 지운다. 사유는 구분해서 센다 — "판독불가가 많은 녹음이 성능이 나쁜가" 를 나중에 보려고
+  drop: ["Sleep stage ?", "Movement time"]
+
+crop:
+  # DeepSleepNet prepare_physionet.py 의 w_edge_mins=30 × 2 = 60 에포크.
+  # 자르지 않고 경계 인덱스만 저장한다 → "절단 vs 미절단" 을 npz 재생성 없이 비교
+  wake_edge_epochs: 60
+
+# 아티팩트는 제거하지 않고 지표(ptp / std / flat_ratio)만 저장한다.
+# 제거하면 평가 대상이 실험마다 달라져 비교가 깨진다.
+
+output:
+  dir: data/interim/epochs
+  compress: false       # float32 EEG 는 엔트로피가 높아 압축 이득이 작다. 속도를 택함
