@@ -111,6 +111,35 @@ def _cmd_split(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_train(args: argparse.Namespace) -> int:
+    """4단계 — 학습 + 교차검증."""
+    from sleepstage.evaluation.train import run_cv
+
+    cfg = Config.load(args.config).override(args.set or [])
+    r = run_cv(cfg)
+    m = r["pooled"]
+    print(
+        f"\nrun {r['run_id']}  →  {r['out_dir']}\n"
+        f"macro-F1 {m['macro_f1']:.4f} (fold 표준편차 {r['macro_f1_std_across_folds']:.4f})"
+        f"  acc {m['accuracy']:.4f}  κ {m['kappa']:.4f}\n"
+        f"클래스별 F1  W {m['f1_W']:.3f} / LS {m['f1_LS']:.3f}"
+        f" / DS {m['f1_DS']:.3f} / R {m['f1_R']:.3f}\n"
+        f"소요 {r['elapsed_sec']}초"
+    )
+    return 0
+
+
+def _cmd_curve(args: argparse.Namespace) -> int:
+    """러닝 커브 — 피험자 수를 늘려가며 학습이 되는지 본다."""
+    from sleepstage.evaluation.train import learning_curve
+
+    cfg = Config.load(args.config).override(args.set or [])
+    counts = [int(x) for x in args.counts.split(",")]
+    r = learning_curve(cfg, counts, n_eval_folds=args.eval_folds)
+    print(f"\n저장 {r['out']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -157,6 +186,18 @@ def build_parser() -> argparse.ArgumentParser:
     p3.add_argument("--folds", type=int, default=10)
     p3.add_argument("--seed", type=int, default=0)
     p3.set_defaults(func=_cmd_split)
+
+    p4 = sub.add_parser("train", help="학습 + 교차검증 (4단계)")
+    p4.add_argument("--config", required=True)
+    p4.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
+    p4.set_defaults(func=_cmd_train)
+
+    p5 = sub.add_parser("curve", help="러닝 커브 (피험자 수 대비 성능)")
+    p5.add_argument("--config", required=True)
+    p5.add_argument("--counts", default="8,16,24,32,40,48,56,70")
+    p5.add_argument("--eval-folds", type=int, default=3)
+    p5.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
+    p5.set_defaults(func=_cmd_curve)
 
     return p
 

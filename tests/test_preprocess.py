@@ -172,3 +172,14 @@ def test_expanding_normalization_is_missing_during_warmup():
     out = expanding_robust(pd.DataFrame({"x": np.arange(30, dtype=float)}))
     assert out["x"][: MIN_PERIODS - 1].isna().all()
     assert out["x"][MIN_PERIODS:].notna().all()
+
+
+def test_learning_curve_subsamples_whole_subjects():
+    """부분집합도 피험자 단위여야 한다. 에포크 단위로 줄이면 누수가 그대로다."""
+    from sleepstage.evaluation.split import fold_masks
+
+    table = pd.DataFrame({"subject": ["A"] * 3 + ["B"] * 3 + ["C"] * 3, "x": range(9)})
+    train_mask, test_mask = fold_masks(table, {"train": ["A", "B"], "test": ["C"]})
+    # 피험자는 통째로 들어가거나 통째로 빠진다
+    assert table.loc[train_mask, "subject"].value_counts().eq(3).all()
+    assert not (train_mask & test_mask).any()
