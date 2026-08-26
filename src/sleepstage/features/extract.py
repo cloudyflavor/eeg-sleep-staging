@@ -1,20 +1,12 @@
-"""2단계 — 에포크 npz 를 특징 parquet 으로.
+"""2단계 — 에포크 npz 를 특징 parquet 으로. 설계 근거는 `docs/04-stage2.md`.
 
-**비교 실험의 축이 전부 여기 있다.** 1단계가 정보를 잃지 않는 처리만 했기 때문에,
-npz 를 다시 만들지 않고 설정만 바꿔 몇 번이고 다시 돌릴 수 있다.
+처리 순서가 설계의 핵심이다::
 
-처리 순서가 중요하다::
+    필터 → 특징 → 정규화 → 시간 문맥 → **마지막에 절단**
+    └───────── 전부 절단 전 전체 배열에서 ─────────┘
 
-    필터  →  특징  →  정규화  →  시간 문맥  →  **마지막에 절단**
-    └────────── 전부 절단 전 전체 배열에서 ──────────┘
-
-절단을 마지막에 하는 이유는 **실제 기기와 맞추기 위해서다.** 기기는 착용한 순간부터 데이터를
-쌓지, 잠든 순간부터 쌓지 않는다. 절단 후에 누적 정규화를 하면 절단 구간의 첫 에포크가
-"과거가 없는" 것처럼 취급되는데, 그 시점에 기기는 이미 몇 시간치를 갖고 있다.
-(실측: 녹음 153개의 ``crop_lo`` 중앙값 839 = 약 7시간)
-
-같은 이유로 인과 필터도 절단 전에 걸어야 한다. 절단 후에 걸면 첫 몇 초가 과거 없이
-시작해 경계 왜곡이 생긴다.
+절단을 마지막에 하는 건 실제 기기와 맞추기 위해서다. 기기는 착용한 순간부터 쌓지
+잠든 순간부터 쌓지 않는다. 순서를 바꾸면 조용히 틀린다.
 """
 
 import json
@@ -37,11 +29,10 @@ def epoch_features(
     channels: list[str],
     with_distance: bool,
 ) -> pd.DataFrame:
-    """에포크별 특징. ``(n_epochs, n_channels, n_samples)`` → 열이 ``채널__특징`` 인 표.
+    """``(n_epochs, n_channels, n_samples)`` → 열이 ``채널__특징`` 인 표.
 
-    **채널마다 따로 계산하고 이름에 채널을 붙인다.** 이름을 파싱하면 나중에 채널별·갈래별
-    중요도를 묶어 분석할 수 있다 (sleep-linear 의 패턴).
-    1채널 vs 2채널 비교도 열 선택만으로 끝난다.
+    이름에 채널을 붙여두면 채널별·갈래별 중요도 분석과 1채널 vs 2채널 비교가
+    열 선택만으로 끝난다.
     """
     frames = []
     for i, ch in enumerate(channels):
@@ -65,13 +56,6 @@ def epoch_features(
 
 
 def _complexity(sig: np.ndarray) -> dict[str, np.ndarray]:
-    """엔트로피·프랙탈. 신호가 얼마나 예측 불가능한가.
-
-    실측(SC400N1)상 **단변량으로는 어떤 대역파워보다 잘 가른다** —
-    4클래스 분산분석 F값이 perm 920, petrosian 905, higuchi 735 인데 beta 가 198 이다.
-    "비싼 특징이 값어치를 하나" 라는 의심이 적어도 단변량 기준으로는 틀렸다.
-    (단서: 다른 특징과의 중복은 반영되지 않은 값이다. 최종 판단은 ablation 으로.)
-    """
     import antropy as ant
 
     return {
@@ -82,14 +66,7 @@ def _complexity(sig: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def _channel_ratios(feats: pd.DataFrame, channels: list[str]) -> pd.DataFrame:
-    """두 채널 사이의 비율. 전극 위치 정보를 담는다.
-
-    알파파는 후두엽(Pz-Oz)에서, 델타파는 전두엽(Fpz-Cz)에서 강하다.
-    비율이 "이 알파가 진짜 알파인가" 를 검증한다.
-
-    **레퍼런스에 없다** — YASA 도 sleep-linear 도 단일 채널 기준이다.
-    우리가 2채널을 쓰기로 했으니 시도해볼 지점이고, 안 되면 안 된다는 것도 결과다.
-    """
+    """알파는 후두엽, 델타는 전두엽에서 강하므로 두 채널의 비율이 위치 정보를 담는다."""
     front, back = channels
     return pd.DataFrame(
         {
@@ -102,8 +79,8 @@ def _channel_ratios(feats: pd.DataFrame, channels: list[str]) -> pd.DataFrame:
 def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, int], dict]:
     """npz 하나를 특징 표로. ``(표, lookahead 장부, 감사 통계)``.
 
-    lookahead 장부는 열마다 "필요한 미래 에포크 수" 를 적는다. 스트리밍을 만드는 게 아니라
-    **장부를 적어두는 것**이다. 나중에 예산을 넣으면 자동으로 걸러진다.
+    lookahead 장부는 열마다 필요한 미래 에포크 수를 적는다. 나중에 지연 예산을 넣으면
+    자동으로 걸러진다.
     """
     z = np.load(path, allow_pickle=False)
     epochs = z["data"]
@@ -187,12 +164,7 @@ def extract_all(
     out_path: str | Path | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """전체 녹음의 특징을 parquet 하나로 모은다.
-
-    **parquet 하나에 모으는 이유**: 학습은 전체를 한 번에 읽는다. 피험자 단위 분할은
-    ``subject`` 열로 하므로 파일을 나눌 필요가 없다. 1단계에서 녹음당 파일로 나눈 것과
-    목적이 다르다 — 거기서는 병렬 생성과 부분 재빌드가 이유였다.
-    """
+    """전체 녹음의 특징을 parquet 하나로. 피험자 분할은 ``subject`` 열로 하므로 나눌 필요가 없다."""
     epochs_dir = Path(epochs_dir or cfg["features"]["epochs_dir"])
     out_path = Path(out_path or cfg["features"]["out"])
 

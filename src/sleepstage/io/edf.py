@@ -41,9 +41,8 @@ class Recording:
 def find_recordings(root: str | Path) -> list[Recording]:
     """디렉터리에서 PSG–Hypnogram 쌍을 모두 찾는다.
 
-    DeepSleepNet 은 두 파일 목록을 각각 정렬해 **인덱스 i 끼리** 짝짓는다.
-    파일이 하나 빠지면 그 뒤가 전부 어긋나는데 아무 소리도 나지 않는다.
-    여기서는 파일명으로 직접 찾고, 못 찾으면 예외를 던진다.
+    파일명으로 직접 찾고 못 찾으면 예외를 던진다. 정렬 후 인덱스로 짝지으면
+    파일 하나가 빠졌을 때 그 뒤가 전부 어긋나는데 아무 소리도 나지 않는다.
     """
     root = Path(root)
     if not root.is_dir():
@@ -74,14 +73,13 @@ def read_recording(
     sfreq: float,
     epoch_seconds: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """신호와 라벨을 함께 읽어 ``(신호, 에포크별 주석)`` 으로 돌려준다.
+    """``(신호 µV (n_ch, n_samples), 에포크별 주석)``.
 
-    - 신호: ``(n_channels, n_samples)`` float32, **µV**
-    - 주석: ``(n_epochs,)`` 문자열. ``"1800초간 Sleep stage W"`` 를 30초 격자에 펼친 것
-
-    둘을 한 함수에서 읽는 이유는 **시작시각이 맞는지 여기서 확인해야** 하기 때문이다.
-    따로 읽으면 그 검증을 호출하는 쪽이 잊어버릴 수 있고, 어긋나면 라벨이 통째로
-    밀린 채 학습이 조용히 성공한다 — 가장 찾기 어려운 종류의 버그다.
+    Notes
+    -----
+    둘을 한 함수에서 읽는 건 **시작시각 일치를 여기서 검증하기 위해서다.** 따로 읽으면
+    호출하는 쪽이 검증을 잊을 수 있고, 어긋나면 라벨이 통째로 밀린 채 학습이 조용히
+    성공한다.
     """
     import mne
 
@@ -106,10 +104,9 @@ def read_recording(
 
 
 def expand_annotations(descriptions, durations, epoch_seconds: float) -> np.ndarray:
-    """``"1800초간 Sleep stage W"`` 같은 구간 목록을 30초 격자에 펼친다.
+    """구간 주석("1800초간 Sleep stage W")을 에포크 격자에 펼친다.
 
-    구간 길이가 에포크 길이의 배수가 아니면 실패시킨다. EDFX 는 전부 배수지만,
-    아니라면 격자가 어긋난다는 뜻이라 조용히 반올림하면 안 된다.
+    길이가 에포크의 배수가 아니면 격자가 어긋났다는 뜻이라 반올림하지 않고 실패시킨다.
     """
     per_epoch = []
     for desc, duration in zip(descriptions, durations, strict=True):
