@@ -5,7 +5,7 @@
 SMOOTH=data/features/b51ceabfb2b8.parquet
 SHIFT=data/features/dfbb784c3c75.parquet
 for feat in $SMOOTH $SHIFT; do
-  for m in majority logreg_l2 logreg_l1 histgb lightgbm xgboost catboost; do
+  for m in majority ridge lasso histgb lightgbm xgboost catboost; do
     echo "=== $feat $m ==="
     .venv/bin/sleepstage train --config configs/experiment/base.yaml \
       --set train.features=$feat --set train.model=$m --set train.drop_missing=true \

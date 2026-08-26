@@ -160,9 +160,9 @@ def _environment() -> dict[str, str]:
 
 def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     """10-fold 교차검증. 같은 run_id 의 완료 산출물이 있으면 건너뛴다."""
-    p = cfg["train"]
+    p = dict(cfg["train"], model=canonical_model(cfg["train"]["model"]))
     features_path = Path(p["features"])
-    rid = run_id(cfg, features_path)
+    rid = config_hash({"features": features_path.stem, "train": p})
     out_dir = Path(p["out_dir"]) / rid
 
     done = out_dir / "metrics.json"
