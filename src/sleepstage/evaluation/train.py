@@ -72,13 +72,20 @@ def _catboost(p: dict):
 #: 모델 추가는 여기 한 줄. 클래스 불균형은 공통으로 sample_weight 로 준다.
 MODELS = {
     "majority": _majority,
-    "logreg_l2": lambda p: _logreg(p, "l2"),
-    "logreg_l1": lambda p: _logreg(p, "l1"),
+    "ridge": lambda p: _logreg(p, "l2"),
+    "lasso": lambda p: _logreg(p, "l1"),
     "histgb": _histgb,
     "xgboost": _xgboost,
     "lightgbm": _lightgbm,
     "catboost": _catboost,
 }
+
+#: 옛 이름 호환. 표시·run_id 는 항상 정식 이름으로 통일된다.
+_ALIASES = {"logreg_l2": "ridge", "logreg_l1": "lasso"}
+
+
+def canonical_model(name: str) -> str:
+    return _ALIASES.get(name, name)
 
 
 def _fit(model, X, y, sample_weight):
@@ -107,7 +114,7 @@ def _importance(model) -> np.ndarray | None:
 
 
 def make_model(cfg: Config):
-    name = cfg["train"]["model"]
+    name = canonical_model(cfg["train"]["model"])
     if name not in MODELS:
         raise ValueError(f"모르는 모델입니다: {name!r} ({'/'.join(MODELS)})")
     return MODELS[name](cfg["train"])
