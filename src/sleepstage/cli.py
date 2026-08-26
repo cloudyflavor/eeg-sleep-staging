@@ -76,6 +76,21 @@ def _cmd_features(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """1단계 산출물을 원본 EDF 와 대조한다."""
+    from sleepstage.preprocess.verify import verify_all
+
+    cfg = Config.load(args.config)
+    r = verify_all(cfg, root=args.root, npz_dir=args.epochs, samples=args.samples)
+    print(
+        f"\n녹음 {r['n_recordings']}개 라벨 대조 · {r['n_signal_checked']}개 신호 대조"
+        f"\n문제 {len(r['problems'])}건"
+    )
+    for problem in r["problems"][:20]:
+        print(f"  {problem}")
+    return 1 if r["problems"] else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -108,6 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="설정 덮어쓰기. 예: --set features.filter=none (여러 번 쓸 수 있음)",
     )
     p2.set_defaults(func=_cmd_features)
+
+    v = sub.add_parser("verify", help="에포크 npz 를 원본 EDF 와 대조 (1단계 검증)")
+    v.add_argument("--config", required=True)
+    v.add_argument("--root", help="설정의 dataset.root 를 덮어씀")
+    v.add_argument("--epochs", help="설정의 output.dir 을 덮어씀")
+    v.add_argument("--samples", type=int, default=3, help="녹음당 신호 대조 에포크 수")
+    v.set_defaults(func=_cmd_verify)
 
     return p
 

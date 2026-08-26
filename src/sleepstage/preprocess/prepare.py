@@ -104,8 +104,7 @@ def prepare_all(
     jobs: int = 1,
 ) -> dict[str, Any]:
     """전체 녹음을 처리하고 매니페스트를 남긴다."""
-    root = Path(root or cfg["dataset"]["root"])
-    out_dir = Path(out_dir or cfg["output"]["dir"])
+    root, out_dir = _load(cfg, root, out_dir)
 
     recs = find_recordings(root)[: limit or None]
     n_sub = len({r.subject for r in recs})
@@ -148,6 +147,11 @@ def format_audit(st: dict[str, Any]) -> str:
     lo, hi = st["crop"]
     lines.append(f"└ 절단 경계 [{lo}:{hi}] → {st['n_after_crop']} (적용은 2단계)")
     return "\n            ".join(lines)
+
+
+def _load(cfg: Config, root, out_dir) -> tuple[Path, Path]:
+    """설정의 경로와 CLI 덮어쓰기를 합친다."""
+    return Path(root or cfg["dataset"]["root"]), Path(out_dir or cfg["output"]["dir"])
 
 
 def _stored_hash(path: Path) -> str | None:
