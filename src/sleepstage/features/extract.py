@@ -26,7 +26,7 @@ STAGE_NAMES = ("W", "LS", "DS", "R")
 
 #: 산출물의 정체성을 정하는 설정. **경로는 넣지 않는다** — 같은 처리를 다른 폴더에
 #: 내보냈다고 해서 다른 데이터가 되는 게 아니다.
-SETTING_KEYS = ("filter", "normalize", "context", "crop", "distance_features")
+SETTING_KEYS = ("filter", "normalize", "context", "distance_features")
 
 
 def settings_hash(cfg: Config) -> str:
@@ -116,7 +116,7 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     lookahead = dict.fromkeys(raw.columns, 0)
     blocks = [raw]
 
-    crop = (int(z["crop_lo"]), int(z["crop_hi"])) if cfg["features"]["crop"] else (0, len(raw))
+    crop = (int(z["crop_lo"]), int(z["crop_hi"]))
 
     norm_mode = cfg["features"]["normalize"]
     audit: dict[str, Any] = {"filter": filter_mode, "normalize": norm_mode}
@@ -151,6 +151,8 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     table = normalize.as_float32(pd.concat(blocks, axis=1))
 
     # ── 여기서 처음으로 자른다 ────────────────────────────────────────────
+    # 앞뒤 30분만 남긴다. 이 데이터는 집에서 24시간 연속 녹음한 것이라 절반 이상이
+    # 낮에 깨어 있는 구간인데, 실제 기기는 자기 전에 쓰고 아침에 벗는다.
     lo, hi = crop
     table = table.iloc[lo:hi].reset_index(drop=True)
 
@@ -229,7 +231,7 @@ def extract_all(
         "n_epochs": len(full),
         "n_features": len(lookahead),
         "class_counts": {STAGE_NAMES[k]: int(v) for k, v in full["stage"].value_counts().items()},
-        "settings": {k: cfg["features"][k] for k in ("filter", "normalize", "context", "crop")},
+        "settings": {k: cfg["features"][k] for k in SETTING_KEYS},
         "lookahead_epochs": lookahead,
         "bytes": out_path.stat().st_size,
         "recordings": audits,

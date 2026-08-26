@@ -69,7 +69,7 @@ def _cmd_features(args: argparse.Namespace) -> int:
         f"\n녹음 {m['n_recordings']}개  피험자 {m['n_subjects']}명\n"
         f"에포크 {m['n_epochs']:,}  특징 {m['n_features']}개\n"
         f"설정   필터 {s['filter']} / 정규화 {s['normalize']}"
-        f" / 문맥 {s['context']} / 절단 {s['crop']}\n"
+        f" / 문맥 {s['context']}\n"
         f"클래스 {m['class_counts']}\n"
         f"용량   {m['bytes'] / 1e6:.1f} MB"
     )
