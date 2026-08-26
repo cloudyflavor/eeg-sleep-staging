@@ -55,9 +55,13 @@ def shifted(
     return pd.concat(frames, axis=1), lookahead
 
 
-def elapsed_hours(epoch_idx: np.ndarray, epoch_seconds: float) -> pd.Series:
-    """녹음 시작부터의 경과 시간(시). 깊은 수면은 전반부에, REM 은 후반부에 몰린다.
+def elapsed_hours(offset_epochs: np.ndarray, epoch_seconds: float) -> pd.Series:
+    """**계산 창 시작부터의** 경과 시간(시). 깊은 수면은 전반부, REM 은 후반부에 몰린다.
+
+    녹음 시작이 아니라 창 시작 기준인 것이 중요하다. 창 시작은 "기기를 켠 시점" 을
+    흉내 낸 것이고, 실제 기기가 아는 것도 자기가 켜진 뒤 흐른 시간뿐이다.
+    녹음 시작 기준으로 재면 이 데이터가 오후부터 녹음됐다는 사실이 그대로 새어 들어간다.
 
     YASA 의 ``time_norm`` 은 밤 전체 길이를 알아야 해서 실시간에 계산할 수 없다.
     """
-    return pd.Series(epoch_idx * epoch_seconds / 3600.0, name="time_hour", dtype="float32")
+    return pd.Series(offset_epochs * epoch_seconds / 3600.0, name="time_hour", dtype="float32")

@@ -28,6 +28,15 @@ STAGE_NAMES = ("W", "LS", "DS", "R")
 #: 내보냈다고 해서 다른 데이터가 되는 게 아니다.
 SETTING_KEYS = ("filter", "normalize", "context", "distance_features")
 
+#: 절단 구간보다 이만큼 앞에서 계산을 시작한다. 누적 통계와 인과 필터가 자리를
+#: 잡을 시간이다. 20 에포크 = 10분.
+#:
+#: 이 값이 **기기를 언제 켰는지**를 정한다. ``crop_lo`` 가 첫 수면 30분 전이므로
+#: 20 에포크를 더 앞당기면 "잠들기 40분 전에 착용" 이 된다.
+#: 녹음 전체를 쓰면 "잠들기 8시간 전부터 켜 놓고 있었다" 가 되어 현실과 맞지 않고,
+#: 쓰지도 않을 에포크를 3배 더 계산하게 된다.
+WARMUP_EPOCHS = 20
+
 
 def settings_hash(cfg: Config) -> str:
     """이 설정이 만들 특징 표의 식별자."""
@@ -99,11 +108,17 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     자동으로 걸러진다.
     """
     z = np.load(path, allow_pickle=False)
-    epochs = z["data"]
-    labels = z["labels"]
-    epoch_idx = z["epoch_idx"]
     sfreq = float(z["sfreq"])
     channels = [str(c) for c in z["ch_names"]]
+
+    # 계산 창 = 절단 구간 + 앞쪽 warmup. 나머지는 읽지도 않는다.
+    crop_lo, crop_hi = int(z["crop_lo"]), int(z["crop_hi"])
+    start = max(0, crop_lo - WARMUP_EPOCHS)
+    keep_from = crop_lo - start
+
+    epochs = z["data"][start:crop_hi]
+    labels = z["labels"][start:crop_hi]
+    epoch_idx = z["epoch_idx"][start:crop_hi]
     epoch_sec = epochs.shape[-1] / sfreq
 
     filter_mode = cfg["features"]["filter"]
@@ -116,14 +131,12 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     lookahead = dict.fromkeys(raw.columns, 0)
     blocks = [raw]
 
-    crop = (int(z["crop_lo"]), int(z["crop_hi"]))
-
     norm_mode = cfg["features"]["normalize"]
     audit: dict[str, Any] = {"filter": filter_mode, "normalize": norm_mode}
     if norm_mode != "none":
         fn = normalize.expanding_robust if norm_mode == "expanding" else normalize.posthoc_robust
         normed = fn(raw).add_suffix("_norm")
-        audit["missing"] = normalize.missing_report(normed, crop)
+        audit["missing"] = normalize.missing_report(normed, (keep_from, len(raw)))
         # 사후 정규화는 밤 전체를 봐야 한다 → 실시간 불가. 장부에 크게 적어 걸러지게 한다.
         cost = 0 if norm_mode == "expanding" else len(raw)
         lookahead.update(dict.fromkeys(normed.columns, cost))
@@ -144,20 +157,17 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     elif ctx_mode != "none":
         raise ValueError(f"모르는 시간 문맥 방식입니다: {ctx_mode!r} (none / smooth / shift)")
 
-    hours = context.elapsed_hours(epoch_idx, epoch_sec)
+    hours = context.elapsed_hours(epoch_idx - epoch_idx[0], epoch_sec)
     blocks.append(hours.to_frame())
     lookahead[hours.name] = 0
 
     table = normalize.as_float32(pd.concat(blocks, axis=1))
 
-    # ── 여기서 처음으로 자른다 ────────────────────────────────────────────
-    # 앞뒤 30분만 남긴다. 이 데이터는 집에서 24시간 연속 녹음한 것이라 절반 이상이
-    # 낮에 깨어 있는 구간인데, 실제 기기는 자기 전에 쓰고 아침에 벗는다.
-    lo, hi = crop
-    table = table.iloc[lo:hi].reset_index(drop=True)
+    # warmup 구간을 버린다. 통계를 세우는 데만 쓰고 학습에는 넣지 않는다.
+    table = table.iloc[keep_from:].reset_index(drop=True)
 
-    table.insert(0, "stage", labels[lo:hi])
-    table.insert(0, "epoch_idx", epoch_idx[lo:hi])
+    table.insert(0, "stage", labels[keep_from:])
+    table.insert(0, "epoch_idx", epoch_idx[keep_from:])
     table.insert(0, "night", np.int8(z["night"]))
     table.insert(0, "subject", str(z["subject"]))
 
@@ -166,7 +176,8 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
             "key": path.stem,
             "n_epochs": len(table),
             "n_features": len(lookahead),
-            "crop": [lo, hi],
+            "crop": [crop_lo, crop_hi],
+            "warmup_epochs": keep_from,
             "class_counts": {
                 STAGE_NAMES[k]: int(v)
                 for k, v in zip(*np.unique(table["stage"], return_counts=True), strict=True)
