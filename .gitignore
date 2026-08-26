@@ -11,9 +11,6 @@ mlruns/
 *.npz
 *.parquet
 
-# 참조용으로 클론한 남의 레포
-Sleep-Stage-Classification/
-
 # 도구
 .pytest_cache/
 .ruff_cache/
