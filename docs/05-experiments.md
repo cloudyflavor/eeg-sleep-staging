@@ -262,3 +262,44 @@ runs/2026-08-26_P1-norm-robust/
 1. **Phase 1의 부스팅 모델을 뭘로?** — `HistGradientBoosting`(설치 불필요) 권장
 2. **서버에 라이브러리 설치 허용?** — sklearn·XGBoost·LightGBM·CatBoost. 안 되면 전부 로컬 맥에서 (특징 파일 약 1GB 전송)
 3. **실험 추적 도구** — MLflow(기존 경험 있음) vs W&B(채용공고에 더 자주 등장)
+
+
+---
+
+# Phase 1 결과 (2026-08-27)
+
+9조합 × 10-fold, HistGB(balanced, seed 0) 고정. pooled macro-F1.
+
+| 필터 \\ 문맥 | none | smooth | shift |
+|---|---:|---:|---:|
+| none | 0.7959 | 0.8267 | 0.8268 |
+| causal | 0.7998 | 0.8337 | 0.8316 |
+| **zerophase** | 0.8022 | **0.8347** | 0.8336 |
+
+**우승: zerophase-smooth** — macro-F1 0.835, acc 0.862, κ 0.792,
+클래스별 F1: W 0.921 / LS 0.858 / DS 0.790 / R 0.770.
+
+## fold 짝지은 검정 (같은 fold 끼리 차이, Wilcoxon)
+
+| 비교 | 평균 차 | 승 | p | 판정 |
+|---|---:|---:|---:|---|
+| zerophase-smooth vs zerophase-none | +3.24%p | 10/10 | 0.002 | **문맥 효과 확실** |
+| zerophase-smooth vs none-smooth | +0.77%p | 8/10 | 0.020 | **필터 효과, 문맥 위에서도 유지** |
+| zerophase-smooth vs causal-smooth | +0.09%p | 5/10 | 0.846 | 구분 불가 |
+| smooth vs shift (양쪽 필터) | +0.1~0.2%p | 7/10 | 0.16~0.56 | **통계적 무승부** |
+
+## 읽기
+
+- **시간 문맥이 지배적 요인** (+3.2%p, 10/10 fold). 수혜는 REM 이 최대
+  (F1 0.686 → 0.770) — EEG 단독으로 애매한 LS↔R 을 이웃 맥락이 갈라준다.
+  실측: 평활이 R 오탐(LS→R)을 13,192 → 7,259 개로 45% 줄였다.
+- **필터는 작지만 진짜**: zerophase > none 이 문맥 없이도(9/10, p=0.027),
+  평활 위에서도(8/10, p=0.020) 유지된다. zerophase ≈ causal 은 구분 불가.
+- **평활 vs 시프트는 무승부.** 수치는 평활이 근소 우위지만 p>0.15.
+  단 배포 특성이 다르다 — **lookahead 평활 3.5분 vs 시프트 1분**,
+  열 수 289 vs 481. 지연 예산이 3.5분 미만인 시나리오에선 시프트가 대안.
+
+## Phase 2 로 가져갈 것
+
+탐욕 함정 완화를 위해 상위 전처리 2개를 함께 끌고 간다 (계획대로):
+**zerophase-smooth** (우승) + **zerophase-shift** (동률·다른 기제·짧은 lookahead).
