@@ -1,12 +1,6 @@
-"""2단계 — 에포크 npz 를 특징 parquet 으로. 설계 근거는 `docs/04-stage2.md`.
+"""2단계 — 에포크 npz → 특징 parquet. 근거: docs/04-stage2.md.
 
-처리 순서가 설계의 핵심이다::
-
-    필터 → 특징 → 정규화 → 시간 문맥 → **마지막에 절단**
-    └───────── 전부 절단 전 전체 배열에서 ─────────┘
-
-절단을 마지막에 하는 건 실제 기기와 맞추기 위해서다. 기기는 착용한 순간부터 쌓지
-잠든 순간부터 쌓지 않는다. 순서를 바꾸면 조용히 틀린다.
+처리 순서 고정: 필터 → 특징 → 정규화 → 문맥 → 절단. 전부 warmup 포함 창에서 계산한다.
 """
 
 import json
@@ -21,20 +15,13 @@ import pandas as pd
 from sleepstage.config import Config, config_hash
 from sleepstage.features import context, filters, normalize, spectral, temporal
 
-#: 클래스 이름. 라벨 정수의 순서와 같다.
 STAGE_NAMES = ("W", "LS", "DS", "R")
 
-#: 산출물의 정체성을 정하는 설정. **경로는 넣지 않는다** — 같은 처리를 다른 폴더에
-#: 내보냈다고 해서 다른 데이터가 되는 게 아니다.
+#: 산출물의 정체성을 정하는 설정. 경로는 데이터를 바꾸지 않으므로 제외.
 SETTING_KEYS = ("filter", "normalize", "context", "distance_features")
 
-#: 절단 구간보다 이만큼 앞에서 계산을 시작한다. 누적 통계와 인과 필터가 자리를
-#: 잡을 시간이다. 20 에포크 = 10분.
-#:
-#: 이 값이 **기기를 언제 켰는지**를 정한다. ``crop_lo`` 가 첫 수면 30분 전이므로
-#: 20 에포크를 더 앞당기면 "잠들기 40분 전에 착용" 이 된다.
-#: 녹음 전체를 쓰면 "잠들기 8시간 전부터 켜 놓고 있었다" 가 되어 현실과 맞지 않고,
-#: 쓰지도 않을 에포크를 3배 더 계산하게 된다.
+#: 절단 구간 앞의 예열 길이(에포크). 누적 통계·인과 필터가 자리 잡는 구간이며
+#: "잠들기 40분 전 착용" 을 흉내 낸다. 학습에는 넣지 않는다.
 WARMUP_EPOCHS = 20
 
 
@@ -44,7 +31,7 @@ def settings_hash(cfg: Config) -> str:
 
 
 def output_path(cfg: Config) -> Path:
-    """``<out_dir>/<설정해시>.parquet``. 설정과 산출물이 1:1 로 묶인다."""
+    """<out_dir>/<설정해시>.parquet — 설정과 산출물이 1:1."""
     return Path(cfg["features"]["out_dir"]) / f"{settings_hash(cfg)}.parquet"
 
 
@@ -54,11 +41,7 @@ def epoch_features(
     channels: list[str],
     with_distance: bool,
 ) -> pd.DataFrame:
-    """``(n_epochs, n_channels, n_samples)`` → 열이 ``채널__특징`` 인 표.
-
-    이름에 채널을 붙여두면 채널별·갈래별 중요도 분석과 1채널 vs 2채널 비교가
-    열 선택만으로 끝난다.
-    """
+    """(n_ep, n_ch, n_samp) → 열이 ``채널__특징`` 인 표. 채널별 분석·선택이 열 이름으로 된다."""
     frames = []
     for i, ch in enumerate(channels):
         sig = epochs[:, i, :]
@@ -91,7 +74,7 @@ def _complexity(sig: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def _channel_ratios(feats: pd.DataFrame, channels: list[str]) -> pd.DataFrame:
-    """알파는 후두엽, 델타는 전두엽에서 강하므로 두 채널의 비율이 위치 정보를 담는다."""
+    """두 채널의 비율 — 전극 위치 정보."""
     front, back = channels
     return pd.DataFrame(
         {
@@ -102,16 +85,12 @@ def _channel_ratios(feats: pd.DataFrame, channels: list[str]) -> pd.DataFrame:
 
 
 def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, int], dict]:
-    """npz 하나를 특징 표로. ``(표, lookahead 장부, 감사 통계)``.
-
-    lookahead 장부는 열마다 필요한 미래 에포크 수를 적는다. 나중에 지연 예산을 넣으면
-    자동으로 걸러진다.
-    """
+    """npz 하나 → (표, lookahead 장부, 감사 기록)."""
     z = np.load(path, allow_pickle=False)
     sfreq = float(z["sfreq"])
     channels = [str(c) for c in z["ch_names"]]
 
-    # 계산 창 = 절단 구간 + 앞쪽 warmup. 나머지는 읽지도 않는다.
+    # 계산 창 = 절단 구간 + 앞쪽 warmup. 나머지는 읽지 않는다.
     crop_lo, crop_hi = int(z["crop_lo"]), int(z["crop_hi"])
     start = max(0, crop_lo - WARMUP_EPOCHS)
     keep_from = crop_lo - start
@@ -134,28 +113,28 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
     norm_mode = cfg["features"]["normalize"]
     audit: dict[str, Any] = {"filter": filter_mode, "normalize": norm_mode}
     if norm_mode != "none":
-        fn = normalize.expanding_robust if norm_mode == "expanding" else normalize.posthoc_robust
+        if norm_mode not in normalize.NORMALIZERS:
+            raise ValueError(
+                f"모르는 정규화 방식입니다: {norm_mode!r} (none/{'/'.join(normalize.NORMALIZERS)})"
+            )
+        fn, cost = normalize.NORMALIZERS[norm_mode]
         normed = fn(raw).add_suffix("_norm")
-        audit["missing"] = normalize.missing_report(normed, (keep_from, len(raw)))
-        # 사후 정규화는 밤 전체를 봐야 한다 → 실시간 불가. 장부에 크게 적어 걸러지게 한다.
-        cost = 0 if norm_mode == "expanding" else len(raw)
-        lookahead.update(dict.fromkeys(normed.columns, cost))
+        audit["missing"] = normalize.missing_report(normed, keep_from)
+        lookahead.update(dict.fromkeys(normed.columns, len(raw) if cost is None else cost))
         blocks.append(normed)
 
     base = pd.concat(blocks, axis=1)
 
     ctx_mode = cfg["features"]["context"]
     audit["context"] = ctx_mode
-    if ctx_mode == "smooth":
-        extra, la = context.smoothed(base)
+    if ctx_mode not in context.CONTEXTS:
+        choices = "/".join(context.CONTEXTS)
+        raise ValueError(f"모르는 시간 문맥 방식입니다: {ctx_mode!r} ({choices})")
+    builder = context.CONTEXTS[ctx_mode]
+    if builder is not None:
+        extra, la = builder(base, epoch_idx)
         blocks.append(extra)
         lookahead.update(la)
-    elif ctx_mode == "shift":
-        extra, la = context.shifted(base, epoch_idx)
-        blocks.append(extra)
-        lookahead.update(la)
-    elif ctx_mode != "none":
-        raise ValueError(f"모르는 시간 문맥 방식입니다: {ctx_mode!r} (none / smooth / shift)")
 
     hours = context.elapsed_hours(epoch_idx - epoch_idx[0], epoch_sec)
     blocks.append(hours.to_frame())
@@ -163,7 +142,7 @@ def build_recording(path: Path, cfg: Config) -> tuple[pd.DataFrame, dict[str, in
 
     table = normalize.as_float32(pd.concat(blocks, axis=1))
 
-    # warmup 구간을 버린다. 통계를 세우는 데만 쓰고 학습에는 넣지 않는다.
+    # warmup 은 통계를 세우는 데만 쓰고 학습에는 넣지 않는다.
     table = table.iloc[keep_from:].reset_index(drop=True)
 
     table.insert(0, "stage", labels[keep_from:])
@@ -195,7 +174,7 @@ def extract_all(
     jobs: int = 1,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """전체 녹음의 특징을 parquet 하나로. 피험자 분할은 ``subject`` 열로 하므로 나눌 필요가 없다."""
+    """전체 녹음 → parquet 하나. 같은 설정의 완성 산출물이 있으면 건너뛴다."""
     epochs_dir = Path(epochs_dir or cfg["features"]["epochs_dir"])
     out_path = Path(out_path) if out_path else output_path(cfg)
     manifest_path = out_path.with_suffix(".manifest.json")
@@ -222,7 +201,7 @@ def extract_all(
     tables, audits, lookahead = [], [], None
     for table, la, audit in results:
         if lookahead is not None and la.keys() != lookahead.keys():
-            # 채널 수가 다른 녹음이 섞이면 장부가 조용히 어긋난다
+            # 장부가 마지막 녹음 것으로 조용히 어긋나는 것 방지
             raise ValueError(f"{audit['key']} 의 열 구성이 다릅니다")
         tables.append(table)
         audits.append(audit)
@@ -252,7 +231,7 @@ def extract_all(
 
 
 def _is_complete(manifest_path: Path, want_hash: str, n_total: int) -> bool:
-    """같은 설정으로 **전체**를 이미 돌렸는지. 부분 실행(``--limit``)은 완성으로 치지 않는다."""
+    """전체 실행 산출물인지. --limit 부분 실행은 완성으로 치지 않는다."""
     if not manifest_path.exists():
         return False
     try:

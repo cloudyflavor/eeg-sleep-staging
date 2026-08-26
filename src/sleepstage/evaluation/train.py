@@ -1,9 +1,7 @@
-"""4단계 — 학습·교차검증·러닝 커브.
+"""4단계 — 학습·교차검증·러닝 커브. 근거: docs/05-experiments.md.
 
-실행 하나의 산출물은 ``runs/<실행해시>/`` 아래에 전부 모인다:
-``manifest.json``(설정·환경), ``metrics.json``(fold별 + 합산 지표),
-``predictions.parquet``(에포크별 예측·확률). **예측을 저장해 두면 나중에 지표를
-다시 정의해도 재학습 없이 계산할 수 있다.**
+산출물은 runs/<실행해시>/ (설정·환경·지표·예측). 예측을 저장해 두면 지표를
+다시 정의해도 재학습이 필요 없다.
 """
 
 import json
@@ -23,16 +21,21 @@ from sleepstage.evaluation.split import STAGE_NAMES, fold_masks, load_folds
 META_COLS = ("subject", "night", "epoch_idx", "stage")
 
 
-def make_model(cfg: Config):
-    p = cfg["train"]
-    if p["model"] == "histgb":
-        from sklearn.ensemble import HistGradientBoostingClassifier
+def _histgb(p: dict):
+    from sklearn.ensemble import HistGradientBoostingClassifier
 
-        return HistGradientBoostingClassifier(
-            class_weight=p["class_weight"],
-            random_state=p["seed"],
-        )
-    raise ValueError(f"모르는 모델입니다: {p['model']!r}")
+    return HistGradientBoostingClassifier(class_weight=p["class_weight"], random_state=p["seed"])
+
+
+#: 모델 추가는 여기 한 줄.
+MODELS = {"histgb": _histgb}
+
+
+def make_model(cfg: Config):
+    name = cfg["train"]["model"]
+    if name not in MODELS:
+        raise ValueError(f"모르는 모델입니다: {name!r} ({'/'.join(MODELS)})")
+    return MODELS[name](cfg["train"])
 
 
 def run_id(cfg: Config, features_path: Path) -> str:
@@ -92,7 +95,10 @@ def run_cv(cfg: Config) -> dict[str, Any]:
         model = make_model(cfg)
         model.fit(table.loc[train_mask, feature_cols], y_all[train_mask])
 
-        proba = model.predict_proba(table.loc[test_mask, feature_cols])
+        # 열 순서는 model.classes_ 기준 — 학습 fold 에 없던 클래스가 있어도 어긋나지 않게 맞춘다
+        raw_proba = model.predict_proba(table.loc[test_mask, feature_cols])
+        proba = np.zeros((len(raw_proba), len(STAGE_NAMES)), dtype=np.float32)
+        proba[:, model.classes_.astype(int)] = raw_proba
         pred = proba.argmax(axis=1)
         fold_metrics.append(_metrics(y_all[test_mask], pred))
 
@@ -133,7 +139,7 @@ def run_cv(cfg: Config) -> dict[str, Any]:
 
 
 def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> None:
-    """MLflow 는 조회 계층일 뿐이다 — 실패해도 실행 산출물(runs/)은 이미 완성돼 있다."""
+    """조회 계층. 실패해도 runs/ 산출물은 이미 완성돼 있다."""
     if not cfg["train"].get("mlflow"):
         return
     try:
@@ -157,14 +163,7 @@ def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> Non
 
 
 def learning_curve(cfg: Config, counts: list[int], n_eval_folds: int = 3) -> dict[str, Any]:
-    """피험자 수를 늘려가며 학습/평가 점수를 잰다.
-
-    Notes
-    -----
-    부분집합도 **피험자 단위**로 뽑는다. 에포크를 무작위로 줄이면 같은 사람이
-    학습·평가 양쪽에 남아 누수가 그대로다. fold 마다 같은 순열의 앞부분을 쓰므로
-    n 이 늘어도 이미 뽑힌 피험자는 유지된다 — 곡선이 표본 교체 잡음 없이 매끈해진다.
-    """
+    """피험자 수를 늘려가며 학습/평가 점수를 잰다. 부분집합도 피험자 단위 — 에포크 단위면 누수."""
     p = cfg["train"]
     features_path = Path(p["features"])
     table, _ = load_table(features_path, p["drop_missing"])

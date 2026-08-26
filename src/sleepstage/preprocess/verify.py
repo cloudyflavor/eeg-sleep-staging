@@ -1,16 +1,11 @@
-"""1단계 산출물을 원본 EDF 와 대조한다.
-
-**파이프라인 코드를 쓰지 않는다.** mne 로 직접 읽고 주석을 손으로 펼친다.
-같은 코드로 두 번 계산하면 같은 버그가 두 번 나올 뿐이라 검증이 되지 않는다.
-"""
+"""1단계 산출물을 원본 EDF 와 대조한다. 파이프라인 코드 미사용 — 같은 코드 두 번은 검증이 아니다."""
 
 import numpy as np
 
 from sleepstage.io.edf import Recording, find_recordings
 from sleepstage.preprocess.prepare import _load
 
-#: 라벨 지도를 여기 다시 적는 것도 의도한 것이다. 설정에서 읽어오면
-#: 설정이 틀렸을 때 검증도 같이 틀린다.
+#: 독립 사본 — 설정에서 읽으면 설정 오류가 검증까지 오염시킨다.
 _MAP = {
     "Sleep stage W": 0,
     "Sleep stage 1": 1,
@@ -62,10 +57,7 @@ def check_recording(rec: Recording, npz_dir, n_signal_samples: int = 0, rng=None
 
 
 def verify_all(cfg, root=None, npz_dir=None, signal_every: int = 15, samples: int = 3) -> dict:
-    """전체 녹음의 라벨을 대조하고, 일부는 신호까지 대조한다.
-
-    신호 대조는 EDF 를 다시 읽어야 해서 비싸다. ``signal_every`` 개마다 한 번만 한다.
-    """
+    """전 녹음 라벨 대조 + signal_every 개마다 신호 표본 대조 (EDF 재읽기가 비싸다)."""
     root, npz_dir = _load(cfg, root, npz_dir)
     recordings = find_recordings(root)
     rng = np.random.default_rng(0)

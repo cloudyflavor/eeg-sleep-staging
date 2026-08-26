@@ -1,11 +1,4 @@
-"""설정 로딩과 해시.
-
-실험 하나 = 설정 파일 하나. 코드에 값을 하드코딩하지 않는다.
-
-설정 해시를 산출물에 함께 저장하면 "이 파일이 어떤 설정으로 만들어졌는지" 를
-나중에 추적할 수 있고, 재실행 시 설정이 바뀌었는지 판단해 건너뛸 수 있다
-(DeepSleepNet/TinySleepNet 은 시작할 때 출력 디렉터리를 통째로 지운다).
-"""
+"""설정 로딩과 해시. 실험 하나 = 설정 파일 하나. 해시는 산출물 추적과 멱등 재개의 축."""
 
 from __future__ import annotations
 
@@ -27,12 +20,7 @@ def config_hash(cfg: dict[str, Any], length: int = 12) -> str:
 
 @dataclass(frozen=True)
 class Config:
-    """설정 딕셔너리에 출처와 해시를 붙인 것.
-
-    ``cfg["epoch"]["seconds"]`` 처럼 딕셔너리로 그대로 쓴다. 얇은 껍데기일 뿐이고,
-    존재 이유는 **설정과 그 해시가 항상 같이 다니게** 하는 것이다.
-    둘을 따로 넘기면 어느 순간 짝이 어긋난 채 저장된다.
-    """
+    """설정·출처·해시 묶음 — 항상 같이 다니게 한다."""
 
     path: Path
     data: dict[str, Any]
@@ -49,11 +37,7 @@ class Config:
         return self.data[key]
 
     def override(self, pairs: list[str]) -> Config:
-        """``["features.filter=none"]`` 같은 목록을 적용한 새 Config.
-
-        실험 매트릭스를 돌릴 때 YAML 을 조합마다 만들지 않아도 된다.
-        값은 YAML 로 해석하므로 ``true`` / ``30`` / ``[a, b]`` 가 그대로 통한다.
-        """
+        """ "a.b=값" 목록을 적용한 새 Config. 없는 키는 예외 — 오타가 새 실험이 되는 것 방지."""
         if not pairs:
             return self
         data = copy.deepcopy(self.data)

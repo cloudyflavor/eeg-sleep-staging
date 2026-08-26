@@ -1,12 +1,8 @@
-"""주파수 영역 특징 — Welch PSD 와 대역파워.
-
-대역 정의와 비율을 쓰는 이유는 `docs/04-stage2.md` D13.
-"""
+"""주파수 영역 특징 — Welch PSD 와 대역파워. 근거: docs/04-stage2.md D13."""
 
 import numpy as np
 from scipy import signal as sp_signal
 
-#: YASA 와 같은 경계. sleep-linear 은 `yasa.bandpower` 를 그대로 import 한다.
 BANDS = {
     "sdelta": (0.4, 1.0),
     "fdelta": (1.0, 4.0),
@@ -27,10 +23,7 @@ RATIOS = {
 
 
 def welch_psd(epochs: np.ndarray, sfreq: float, window_sec: float = 5.0) -> tuple:
-    """에포크별 PSD. 조각을 평균이 아니라 **중앙값**으로 합친다.
-
-    1초짜리 잡음이 스펙트럼을 끌고 가지 못하므로 아티팩트 제거를 건너뛸 수 있다.
-    """
+    """에포크별 PSD. 조각 집계는 중앙값 — 잡음 1초가 스펙트럼을 못 끌게 한다."""
     return sp_signal.welch(
         epochs,
         sfreq,
@@ -42,7 +35,7 @@ def welch_psd(epochs: np.ndarray, sfreq: float, window_sec: float = 5.0) -> tupl
 
 
 def band_powers(freqs: np.ndarray, psd: np.ndarray) -> dict[str, np.ndarray]:
-    """상대 대역파워 6개, 총파워 1개, 비율 4개. ``abspow`` 만 절대값이다."""
+    """상대 대역파워 6, 총파워 1, 비율 4. ``abspow`` 만 절대값."""
     dfreq = float(freqs[1] - freqs[0])
 
     def integrate(lo: float, hi: float) -> np.ndarray:

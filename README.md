@@ -78,11 +78,17 @@ extras 는 목적별로 나눠 뒀다.
 ## 사용
 
 ```bash
-sleepstage config configs/preprocess/base.yaml   # 설정 확인 + 해시
-sleepstage prepare --config configs/preprocess/base.yaml --jobs 8
+sleepstage prepare  --config configs/preprocess/base.yaml --jobs 8   # ① EDF → 에포크 npz
+sleepstage verify   --config configs/preprocess/base.yaml            # ① 검증 (원본과 독립 대조)
+sleepstage features --config configs/features/base.yaml --jobs 8     # ② npz → 특징 parquet
+sleepstage split    --features data/features/<해시>.parquet \
+                    --out data/splits/subject_10fold.json            # ③ 피험자 단위 fold 고정
+sleepstage train    --config configs/experiment/base.yaml            # ④ 학습 + 교차검증
+sleepstage curve    --config configs/experiment/base.yaml            # 러닝 커브
 ```
 
-`prepare` 는 설정 해시를 산출물에 저장하고, 재실행 시 해시가 같으면 건너뛴다.
+설정 조합은 `--set features.filter=none` 처럼 만든다. 산출물 이름이 설정 해시라
+같은 설정 재실행은 건너뛴다.
 
 ## 구조
 
@@ -91,14 +97,15 @@ src/sleepstage/
 ├── cli.py           단일 진입점 (구현된 명령만 등록)
 ├── config.py        설정 로딩 + 해시 (재현성의 축)
 ├── io/edf.py        파일 짝짓기, EDF 읽기, 시작시각 검증
-└── preprocess/      라벨 코드화, 에포크화, 절단 경계, 품질 지표
+├── preprocess/      라벨 코드화, 에포크화, 절단 경계, 검증(verify)
+├── features/        필터·특징·정규화·시간 문맥 (2단계)
+└── evaluation/      피험자 fold 분할, 학습, 러닝 커브 (3·4단계)
 configs/             실험 하나 = YAML 하나
 tests/
 docs/                설계 근거와 조사 기록
 ```
 
-2단계 이후(`features` / `split` / `train` / `evaluate`)는 아직 없다.
-**만들 때 디렉터리를 만든다** — 빈 자리를 미리 잡아두지 않는다.
+5단계(evaluate·리포트)는 아직 없다. **만들 때 디렉터리를 만든다.**
 
 ## 문서
 

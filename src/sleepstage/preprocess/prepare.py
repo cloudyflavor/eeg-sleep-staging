@@ -1,12 +1,4 @@
-"""1단계 — EDF 한 쌍을 에포크 npz 하나로.
-
-녹음당 파일 하나를 만든다. 파일명이 곧 피험자 키라서 피험자 단위 교차검증의
-분할이 **파일 목록 그 자체**가 된다. 인덱스 범위 계산이 끼어들 자리가 없다.
-(단일 HDF5 라면 fold 마다 행 범위를 계산해야 하고, 데이터 누수는 늘 그런 곳에 숨는다.)
-
-녹음별 통계는 평범한 딕셔너리로 다룬다. 그대로 ``manifest.json`` 이 되기 때문에
-중간에 클래스를 두면 직렬화 코드만 늘어난다.
-"""
+"""1단계 — EDF 한 쌍 → 에포크 npz 하나. 근거: docs/03-stage1.md."""
 
 import json
 from collections import Counter
@@ -41,10 +33,8 @@ def prepare_one(
     signal, per_epoch = read_recording(rec, channels, sfreq, epoch_sec)
     epochs = epoch_signal(signal, round(epoch_sec * sfreq))
 
-    # EDFX 는 녹음이 끝난 뒤에도 주석이 이어진다 (채점자가 신호 없는 구간을
-    # "Sleep stage ?" 로 채워둔 것). 신호가 없으니 애초에 채점 대상이 아니다.
-    # **길이를 맞추고 나서** 제거 통계를 낸다 — 아니면 존재한 적 없는 에포크를
-    # "제거했다" 고 세게 된다.
+    # 신호 없는 꼬리 주석은 제외. 길이를 맞춘 뒤에 제거를 세야
+    # 존재한 적 없는 에포크를 지웠다고 기록하지 않는다.
     n_annot, n_signal = len(per_epoch), len(epochs)
     n_scored = min(n_annot, n_signal)
     epochs, per_epoch = epochs[:n_scored], per_epoch[:n_scored]
@@ -128,11 +118,7 @@ def prepare_all(
 
 
 def format_audit(st: dict[str, Any]) -> str:
-    """녹음 하나에 무슨 일이 있었는지 한 덩어리로.
-
-    "왜 이 파일만 에포크가 적지?" 를 나중에 추적할 수 있는 유일한 수단이다.
-    DeepSleepNet 은 ``print`` 가 로깅의 전부라 터미널을 닫으면 사라진다.
-    """
+    """녹음 하나의 감사 로그 — "왜 이 파일만 에포크가 적지?" 를 추적하는 수단."""
     if st["status"] == "skipped":
         return f"{st['key']:>9}  건너뜀 (설정 동일)"
 
@@ -166,10 +152,7 @@ def _stored_hash(path: Path) -> str | None:
 def _summarise(
     results: list[dict[str, Any]], cfg: Config, root: Path, out_dir: Path
 ) -> dict[str, Any]:
-    """건너뛴 녹음의 통계는 이전 매니페스트에서 되살린다.
-
-    아니면 재실행할 때마다 집계가 0 이 되어 기록이 통째로 사라진다.
-    """
+    """건너뛴 녹음 통계를 이전 매니페스트에서 되살린다 — 아니면 재실행마다 집계가 0 이 된다."""
     previous: dict[str, dict[str, Any]] = {}
     path = out_dir / "manifest.json"
     if path.exists():

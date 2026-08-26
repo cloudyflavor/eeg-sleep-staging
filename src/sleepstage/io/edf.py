@@ -39,10 +39,9 @@ class Recording:
 
 
 def find_recordings(root: str | Path) -> list[Recording]:
-    """디렉터리에서 PSG–Hypnogram 쌍을 모두 찾는다.
+    """PSG–Hypnogram 쌍을 파일명으로 찾는다. 못 찾으면 예외.
 
-    파일명으로 직접 찾고 못 찾으면 예외를 던진다. 정렬 후 인덱스로 짝지으면
-    파일 하나가 빠졌을 때 그 뒤가 전부 어긋나는데 아무 소리도 나지 않는다.
+    정렬 인덱스로 짝지으면 파일 누락 시 조용히 어긋난다.
     """
     root = Path(root)
     if not root.is_dir():
@@ -73,13 +72,9 @@ def read_recording(
     sfreq: float,
     epoch_seconds: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """``(신호 µV (n_ch, n_samples), 에포크별 주석)``.
+    """(신호 µV (n_ch, n_samples), 에포크별 주석).
 
-    Notes
-    -----
-    둘을 한 함수에서 읽는 건 **시작시각 일치를 여기서 검증하기 위해서다.** 따로 읽으면
-    호출하는 쪽이 검증을 잊을 수 있고, 어긋나면 라벨이 통째로 밀린 채 학습이 조용히
-    성공한다.
+    시작시각이 어긋나면 예외 — 밀린 라벨은 조용히 학습된다.
     """
     import mne
 
@@ -104,10 +99,7 @@ def read_recording(
 
 
 def expand_annotations(descriptions, durations, epoch_seconds: float) -> np.ndarray:
-    """구간 주석("1800초간 Sleep stage W")을 에포크 격자에 펼친다.
-
-    길이가 에포크의 배수가 아니면 격자가 어긋났다는 뜻이라 반올림하지 않고 실패시킨다.
-    """
+    """구간 주석을 에포크 격자에 펼친다. 배수가 아니면 반올림하지 않고 실패."""
     per_epoch = []
     for desc, duration in zip(descriptions, durations, strict=True):
         n = duration / epoch_seconds
