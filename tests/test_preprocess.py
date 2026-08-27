@@ -183,3 +183,26 @@ def test_learning_curve_subsamples_whole_subjects():
     # 피험자는 통째로 들어가거나 통째로 빠진다
     assert table.loc[train_mask, "subject"].value_counts().eq(3).all()
     assert not (train_mask & test_mask).any()
+
+
+def test_feature_subsets_select_expected_columns():
+    """단일 채널 부분집합에 반대 채널·ratio 열이 새면 ablation 이 무의미해진다."""
+    from sleepstage.evaluation.train import SUBSETS
+
+    cols = [
+        "EEG Fpz-Cz__fdelta",
+        "EEG Pz-Oz__fdelta_norm_c7min",
+        "ratio__alpha_back_front",
+        "EEG Fpz-Cz__mmd_c7min",
+        "EEG Pz-Oz__esis_norm",
+        "time_hour",
+    ]
+    pick = lambda name: [c for c in cols if SUBSETS[name](c)]
+    assert pick("fpz_only") == ["EEG Fpz-Cz__fdelta", "EEG Fpz-Cz__mmd_c7min", "time_hour"]
+    assert "ratio__alpha_back_front" not in pick("pz_only")
+    assert pick("no_distance") == [
+        "EEG Fpz-Cz__fdelta",
+        "EEG Pz-Oz__fdelta_norm_c7min",
+        "ratio__alpha_back_front",
+        "time_hour",
+    ]

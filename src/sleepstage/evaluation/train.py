@@ -21,6 +21,14 @@ from sleepstage.evaluation.split import STAGE_NAMES, fold_masks, load_folds
 #: 특징이 아닌 열. 나머지 전부가 모델 입력이다.
 META_COLS = ("subject", "night", "epoch_idx", "stage")
 
+#: 열 선택 — ablation 용. ratio 열은 두 채널이 있어야 계산되므로 단일 채널에서 빠진다.
+SUBSETS = {
+    "all": lambda c: True,
+    "fpz_only": lambda c: c.startswith("EEG Fpz-Cz") or c == "time_hour",
+    "pz_only": lambda c: c.startswith("EEG Pz-Oz") or c == "time_hour",
+    "no_distance": lambda c: "mmd" not in c and "esis" not in c,
+}
+
 
 def _majority(p: dict):
     from sklearn.dummy import DummyClassifier
@@ -179,7 +187,10 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
 
     table, load_info = load_table(features_path, p["drop_missing"])
     folds = load_folds(p["splits"])
-    feature_cols = [c for c in table.columns if c not in META_COLS]
+    subset = p.get("feature_subset", "all")
+    if subset not in SUBSETS:
+        raise ValueError(f"모르는 feature_subset: {subset!r} ({'/'.join(SUBSETS)})")
+    feature_cols = [c for c in table.columns if c not in META_COLS and SUBSETS[subset](c)]
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # numpy 로 한 번만 변환 — 트리 라이브러리들의 열 이름 제약도 피한다
@@ -251,9 +262,14 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
 def _run_name(features_path: Path, train_params: dict) -> str:
     """사람이 읽는 실행 이름: 'causal-smooth_histgb'. 설정을 못 읽으면 해시로."""
     st = feature_settings(features_path)
-    if st:
-        return f"{st.get('filter', '?')}-{st.get('context', '?')}_{train_params['model']}"
-    return features_path.stem
+    if not st:
+        return features_path.stem
+    name = f"{st.get('filter', '?')}-{st.get('context', '?')}"
+    if st.get("normalize") == "none":
+        name += "-nonorm"
+    name += f"_{train_params['model']}"
+    subset = train_params.get("feature_subset", "all")
+    return name if subset == "all" else f"{name}_{subset}"
 
 
 def _log_mlflow(cfg: Config, manifest: dict, pooled: dict, out_dir: Path) -> None:
