@@ -132,6 +132,27 @@ def _cmd_curve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tune(args: argparse.Namespace) -> int:
+    """Phase 3 — catboost 무작위 탐색 (5-fold). 우승 설정은 따로 10-fold 로 재평가."""
+    from sleepstage.evaluation.tune import search
+
+    cfg = Config.load(args.config).override(args.set or [])
+    r = search(cfg, n_trials=args.trials, search_folds=args.search_folds)
+    print(f"\n최고: {r['best']}\n저장 {r['out']}")
+    return 0
+
+
+def _cmd_feature_curve(args: argparse.Namespace) -> int:
+    """중요도 상위 N개만으로 학습 — 몇 개로 충분한가."""
+    from sleepstage.evaluation.tune import feature_curve
+
+    cfg = Config.load(args.config).override(args.set or [])
+    counts = [int(x) for x in args.counts.split(",")]
+    r = feature_curve(cfg, counts, args.importance)
+    print(f"\n저장 {r['out']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -191,6 +212,20 @@ def build_parser() -> argparse.ArgumentParser:
     p5.add_argument("--eval-folds", type=int, default=3)
     p5.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
     p5.set_defaults(func=_cmd_curve)
+
+    p6 = sub.add_parser("tune", help="하이퍼파라미터 무작위 탐색 (Phase 3)")
+    p6.add_argument("--config", required=True)
+    p6.add_argument("--trials", type=int, default=20)
+    p6.add_argument("--search-folds", type=int, default=5)
+    p6.add_argument("--set", action="append", metavar="키=값")
+    p6.set_defaults(func=_cmd_tune)
+
+    p7 = sub.add_parser("feature-curve", help="중요도 상위 N개 성능 곡선")
+    p7.add_argument("--config", required=True)
+    p7.add_argument("--importance", required=True, help="importance.csv 경로")
+    p7.add_argument("--counts", default="20,50,100,200,289")
+    p7.add_argument("--set", action="append", metavar="키=값")
+    p7.set_defaults(func=_cmd_feature_curve)
 
     return p
 

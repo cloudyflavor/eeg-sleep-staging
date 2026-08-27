@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -209,3 +211,12 @@ def test_feature_subsets_select_expected_columns():
         "ratio__alpha_back_front",
         "time_hour",
     ]
+
+
+def test_search_space_includes_default_first():
+    """기본값을 반드시 후보에 넣어야 '튜닝이 기본값보다 나은가' 를 말할 수 있다."""
+    from sleepstage.evaluation.tune import CATBOOST_SPACE, sample_space
+
+    cand = sample_space(CATBOOST_SPACE, 8, seed=0)
+    assert cand[0] == {"depth": 6, "iterations": 1000, "learning_rate": 0.1, "l2_leaf_reg": 3}
+    assert len({json.dumps(c, sort_keys=True) for c in cand}) == 8  # 중복 없음
