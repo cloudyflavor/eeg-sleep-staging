@@ -197,7 +197,10 @@ def test_feature_subsets_select_expected_columns():
         "EEG Pz-Oz__esis_norm",
         "time_hour",
     ]
-    pick = lambda name: [c for c in cols if SUBSETS[name](c)]
+
+    def pick(name):
+        return [c for c in cols if SUBSETS[name](c)]
+
     assert pick("fpz_only") == ["EEG Fpz-Cz__fdelta", "EEG Fpz-Cz__mmd_c7min", "time_hour"]
     assert "ratio__alpha_back_front" not in pick("pz_only")
     assert pick("no_distance") == [
