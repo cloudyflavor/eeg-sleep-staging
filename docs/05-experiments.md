@@ -303,3 +303,63 @@ runs/2026-08-26_P1-norm-robust/
 
 탐욕 함정 완화를 위해 상위 전처리 2개를 함께 끌고 간다 (계획대로):
 **zerophase-smooth** (우승) + **zerophase-shift** (동률·다른 기제·짧은 lookahead).
+
+
+---
+
+# Phase 2 결과 (2026-08-27)
+
+전처리 상위 2개(zerophase-smooth / zerophase-shift) × 모델 7종 + 앙상블.
+전 모델 공통: 같은 10-fold, drop_missing, sample_weight balanced, 기본 하이퍼파라미터.
+
+| 모델 | smooth | shift |
+|---|---:|---:|
+| **앙상블** (부스팅 4종 확률 평균) | **0.8398** | 0.8386 |
+| catboost | 0.8381 | 0.8353 |
+| xgboost | 0.8378 | 0.8379 |
+| histgb | 0.8332 | 0.8337 |
+| lightgbm | 0.8324 | 0.8299 |
+| ridge | 0.8136 | 0.8074 |
+| lasso | 0.8080 | 0.8027 |
+| majority | 0.1261 | 0.1259 |
+
+## fold 짝지은 검정 (Wilcoxon)
+
+| 비교 | 평균 차 | 승 | p | 판정 |
+|---|---:|---:|---:|---|
+| catboost vs histgb | +0.52%p | 9/10 | 0.010 | **catboost 우위 확실** |
+| catboost vs xgboost | +0.06%p | 5/10 | 0.846 | 무승부 |
+| 앙상블 vs catboost | +0.16%p | 6/10 | 0.193 | 판정 불가 (수치 우위만) |
+| catboost vs ridge | +2.36%p | 10/10 | 0.002 | **비선형의 몫 확정** |
+| smooth vs shift (앙상블) | +0.08%p | 6/10 | 0.625 | 무승부 재확인 |
+
+## 읽기
+
+- **비선형의 몫 = 약 2.4%p** (ridge 0.814 → catboost 0.838, 10/10 fold).
+  성능의 원천은 특징 공학(바닥 0.126 → 선형 0.814)이고 모델의 기여는 작지만 진짜다.
+  sleep-linear 논문의 주장이 우리 데이터에서 재현됐다.
+- **catboost ≈ xgboost > histgb > lightgbm.** catboost 1위는 Van der Donckt 2023
+  의 선택과 일치. lightgbm 최하위는 leaf-wise 성장이 유효 표본 78명에서
+  불리하리라던 사전 예측과 방향이 같다 (단 격차는 작다).
+- **앙상블은 수치상 최고(0.840)지만 catboost 와 통계적으로 구분 불가.**
+  추론 비용 4배의 대가로 +0.16%p — 웨어러블 관점에선 단일 catboost 가 합리적,
+  순위표용으로는 앙상블이 최고치.
+- **lasso 의 특징 선택은 실패** — 기본 규제(C=1)가 17.6만 행 앞에서 너무 약해
+  계수 0 이 하나도 없다. "몇 개로 충분한가" 는 Phase 3 에서 규제 경로(C 스윕)로 잰다.
+
+## 변수 중요도 (트리 3종 평균 순위, smooth 세트)
+
+상위권: Fpz-Cz std(원본), skew·fdelta·theta·sigma 의 평활본(`_c7min`),
+time_hour(19위), 채널 비율 `delta_front_back`(21위), **Esis 평활본(19위)**.
+
+- **평활본이 상위권을 지배** — Phase 1 의 문맥 효과와 정합
+- **채널 비율(우리 고유 특징)과 time_hour 가 289개 중 20위권** — 설계 검증
+- **Esis 가 19위로 생존** — "중복일 것" 이라던 사전 예측과 달리 평활본이 값을 한다.
+  Phase 1.5 ablation 에서 확정 필요 (MMD 는 상위권에 없음)
+
+## 확정
+
+**대표 모델: catboost (zerophase-smooth), macro-F1 0.838 / κ 0.798.**
+xgboost 는 통계적 동률로 병기. 앙상블은 최고치 보고용.
+Phase 3(튜닝·가중치·규제 경로)과 Phase 1.5(1ch vs 2ch, MMD·Esis ablation)는
+catboost 기준으로 진행한다.
