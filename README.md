@@ -62,6 +62,7 @@ EEG 단독 4-class 수면 단계 분류. **재현 가능한 전처리·학습·�
 uv venv --python 3.12
 uv pip install -e ".[boosting-full,tracking,analysis,dev]"
 uv run pytest
+git config core.hooksPath .githooks   # 커밋 전 lint·테스트 자동 실행
 ```
 
 extras 는 목적별로 나눠 뒀다.

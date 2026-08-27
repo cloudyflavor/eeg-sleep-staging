@@ -1,0 +1,16 @@
+#!/bin/sh
+# 커밋 전 자동 검사. 실패하면 커밋이 거부된다.
+# 설치: git config core.hooksPath .githooks   (README 참고)
+# 우회가 꼭 필요하면: git commit --no-verify
+VENV=.venv/bin
+[ -x "$VENV/ruff" ] || { echo "pre-commit: .venv 없음 — 건너뜀"; exit 0; }
+
+echo "pre-commit: ruff format --check"
+"$VENV/ruff" format --check src tests || {
+    echo "  → 'ruff format src tests' 로 정리하세요"; exit 1; }
+
+echo "pre-commit: ruff check"
+"$VENV/ruff" check src tests || exit 1
+
+echo "pre-commit: pytest"
+"$VENV/pytest" -q || exit 1
