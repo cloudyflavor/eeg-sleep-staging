@@ -23,9 +23,11 @@ from sleepstage.evaluation.train import (
 )
 
 #: 기본값을 중심에 두고 양쪽으로 벌린 격자. 유효 표본이 78명이라 얕고 규제 센 쪽을 더 본다.
+#: iterations 2000 은 뺐다 — 실측상 조합 하나가 5-fold 에 37분이라 예산이 안 맞고,
+#: 트리를 늘리는 방향은 learning_rate 를 낮추는 것으로 대신 탐색된다.
 CATBOOST_SPACE = {
     "depth": [4, 6, 8],
-    "iterations": [500, 1000, 2000],
+    "iterations": [500, 1000],
     "learning_rate": [0.03, 0.1],
     "l2_leaf_reg": [1, 3, 10],
 }
