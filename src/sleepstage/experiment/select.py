@@ -56,8 +56,12 @@ def _decorr(X, y, sw, arg: str, threads: int) -> np.ndarray:
     order = _rank(X, y, sw, threads)
 
     rows = X if len(X) <= CORR_ROWS else X[:: len(X) // CORR_ROWS][:CORR_ROWS]
+    # 결측을 그대로 두면 그 열의 상관이 전부 NaN 이 되고, NaN 을 0 으로 바꾸면
+    # 닮은 열이 안 닮은 것으로 보여 하나도 안 걷힌다. 가운데값으로 메우고 잰다.
+    rows = np.where(np.isnan(rows), np.nanmedian(rows, axis=0), rows)
     corr = np.corrcoef(rows, rowvar=False)
     np.fill_diagonal(corr, 0.0)
+    # 값이 하나뿐인 열은 상관이 정의되지 않는다. 그런 열은 아무도 안 막는다.
     corr = np.abs(np.nan_to_num(corr))
 
     keep, blocked = [], np.zeros(X.shape[1], dtype=bool)

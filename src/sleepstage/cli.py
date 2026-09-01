@@ -191,6 +191,49 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_postprocess(args: argparse.Namespace) -> int:
+    """저장된 확률에 단계 전이 후처리를 걸어 다시 채점한다."""
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+    from scipy.stats import wilcoxon
+
+    from sleepstage.experiment import transitions
+
+    run = Path(args.run)
+    pred = pd.read_parquet(run / "predictions.parquet")
+    lag = None if args.lag < 0 else args.lag
+    out, info = transitions.apply(pred, lag=lag, weight=args.weight)
+
+    before = transitions.score(out, "pred")
+    after = transitions.score(out, "pred_smoothed")
+    diff = [a - b for a, b in zip(after["folds"], before["folds"], strict=True)]
+    result = {
+        **info,
+        "before": before,
+        "after": after,
+        "gain_pp": (after["macro_f1"] - before["macro_f1"]) * 100,
+        "folds_improved": sum(d > 0 for d in diff),
+        "wilcoxon_p": float(wilcoxon(diff).pvalue) if any(diff) else 1.0,
+    }
+    (run / "transitions.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    out.to_parquet(run / "predictions_smoothed.parquet", index=False)
+
+    picked = sorted(info["weights"].values())
+    print(
+        f"뒤를 보는 조각 {info['lag']}  고른 세기 {picked}\n"
+        f"macro-F1 {before['macro_f1']:.4f} → {after['macro_f1']:.4f}"
+        f"  {result['gain_pp']:+.2f}%p\n"
+        f"이긴 묶음 {result['folds_improved']}/{len(diff)}"
+        f"  p={result['wilcoxon_p']:.3f}\n"
+        f"저장 {run / 'transitions.json'}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -279,6 +322,16 @@ def build_parser() -> argparse.ArgumentParser:
     p11.add_argument("--limit", type=int, help="앞에서 N 조각만")
     p11.add_argument("--compare", help="비교할 특징 parquet 경로")
     p11.set_defaults(func=_cmd_replay)
+
+    p12 = sub.add_parser("postprocess", help="저장된 확률에 단계 전이 후처리를 걸어 다시 채점")
+    p12.add_argument("--run", required=True, help="predictions.parquet 이 있는 실행 폴더")
+    p12.add_argument(
+        "--lag", type=int, default=0, help="판정 전에 볼 뒤쪽 조각 수, 0 은 과거만, 음수는 밤 전체"
+    )
+    p12.add_argument(
+        "--weight", type=float, help="표를 믿는 세기. 비우면 묶음마다 나머지 묶음 안에서 고른다"
+    )
+    p12.set_defaults(func=_cmd_postprocess)
 
     return p
 

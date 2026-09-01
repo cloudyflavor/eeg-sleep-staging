@@ -472,3 +472,95 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
     assert seen, "가지치기가 아예 불리지 않았다"
     assert all(n < len(rows) for n in seen), f"평가 행까지 보고 골랐다: {seen}"
     assert set(seen) == {200}
+
+
+def test_selection_still_groups_when_values_are_missing():
+    """결측을 그냥 두면 닮은 열의 상관이 NaN 이 되어 하나도 안 걷힌다."""
+    pytest.importorskip("lightgbm")
+    from sleepstage.experiment.select import choose
+
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 4, 600)
+    signal = y + rng.normal(0, 0.3, 600)
+    X = np.column_stack([signal, signal, rng.normal(0, 1, 600)]).astype("float32")
+    X[:5, 0] = np.nan  # 방추처럼 초반이 비는 열을 흉내 낸다
+
+    assert len(choose("decorr:0.95", X, y, threads=1)) == 2
+
+
+def _fake_predictions(rng, n_subjects=6, n_epochs=60):
+    """전이 후처리를 시험할 가짜 예측. 단계가 덩어리로 이어지게 만든다."""
+    rows = []
+    for s in range(n_subjects):
+        stage, labels = 0, []
+        for _ in range(n_epochs):
+            if rng.random() < 0.1:
+                stage = int(rng.integers(0, 4))
+            labels.append(stage)
+        labels = np.array(labels)
+        proba = np.full((n_epochs, 4), 0.1)
+        proba[np.arange(n_epochs), labels] = 0.7
+        # 가끔 한 칸만 엉뚱하게 튀게 만든다. 후처리가 지워야 할 자리다.
+        for i in rng.choice(n_epochs, 6, replace=False):
+            proba[i] = 0.1
+            proba[i, (labels[i] + 1) % 4] = 0.7
+        proba /= proba.sum(1, keepdims=True)
+        rows.append(
+            pd.DataFrame(
+                {
+                    "subject": f"SC4{s:02d}",
+                    "night": 1,
+                    "epoch_idx": np.arange(n_epochs),
+                    "stage": labels,
+                    "pred": proba.argmax(1),
+                    "fold": s % 3,
+                    **{f"proba_{n}": proba[:, k] for k, n in enumerate(["W", "LS", "DS", "R"])},
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_transition_table_never_uses_the_fold_it_scores():
+    """평가 묶음의 정답으로 표를 만들면 점수가 부풀고 실행해도 안 보인다."""
+    from sleepstage.experiment import transitions
+
+    seen = []
+    real = transitions.transition_log_prob
+
+    def spy(labels_per_recording):
+        labels = list(labels_per_recording)
+        seen.append(sum(len(x) for x in labels))
+        return real(labels)
+
+    pred = _fake_predictions(np.random.default_rng(0))
+    transitions.transition_log_prob = spy
+    try:
+        transitions.apply(pred, lag=0, weight=0.25)
+    finally:
+        transitions.transition_log_prob = real
+
+    assert seen, "표를 아예 안 만들었다"
+    assert all(n < len(pred) for n in seen), f"전체 라벨로 표를 만들었다: {seen}"
+
+
+def test_transitions_do_not_cross_recordings():
+    """녹음 경계를 이으면 한 사람의 아침이 다른 사람의 밤으로 이어진다."""
+    from sleepstage.experiment.transitions import transition_log_prob
+
+    apart = np.exp(transition_log_prob([np.array([0, 0]), np.array([3, 3])]))
+    together = np.exp(transition_log_prob([np.array([0, 0, 3, 3])]))
+    assert apart[0, 3] < together[0, 3]
+
+
+def test_past_only_decoding_ignores_the_future():
+    """과거만 본다고 해놓고 뒤를 보면 실시간에서 못 쓰는 수치를 보고하게 된다."""
+    from sleepstage.experiment.transitions import decode, transition_log_prob
+
+    rng = np.random.default_rng(1)
+    emission = np.log(rng.dirichlet(np.ones(4), size=30))
+    trans = transition_log_prob([rng.integers(0, 4, 200)])
+
+    head = decode(emission[:10], trans, 0)
+    whole = decode(emission, trans, 0)
+    assert np.array_equal(head, whole[:10])

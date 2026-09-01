@@ -11,15 +11,17 @@
 그건 실행해도 안 보인다.
 
 **뒤를 얼마나 볼지 고를 수 있어야 한다.** 밤 전체를 보면 아침에야 답이 나온다.
-이미 기다리는 조각 수 안에서 보면 지연이 늘지 않는다.
+``lag`` 를 0 으로 두면 과거만 보므로 지연이 전혀 늘지 않는다.
 
-**표를 얼마나 믿을지 조절할 수 있어야 한다.** 표에는 단계별 흔한 정도가 함께
-들어 있어서, 그대로 믿으면 흔한 단계로 쏠려 드문 단계를 똑같이 보는 macro-F1 에서
-손해를 본다. 세기를 0 으로 두면 지금과 같은 판정이 나온다.
+**세기도 평가 대상 없이 골라야 한다.** 표에는 단계별 흔한 정도가 함께 들어 있어서
+그대로 믿으면 흔한 단계로 쏠려 드문 단계를 똑같이 보는 macro-F1 에서 손해를 본다.
+좋은 세기를 평가 점수로 고르면 그 점수가 낙관적으로 부풀려지므로, 묶음마다
+나머지 묶음 안에서 정하고 그 묶음에 적용한다.
 """
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import f1_score
 
 from sleepstage.experiment.split import STAGE_NAMES
 
@@ -27,6 +29,12 @@ N_STAGES = len(STAGE_NAMES)
 
 #: 한 번도 안 나온 전이에 0 을 주면 그 길이 영원히 막힌다. 아주 작은 값을 깐다.
 SMOOTHING = 0.1
+
+#: 세기 후보. 1.0 은 표를 그대로 믿는 것이고 실측에서 오히려 손해였다.
+WEIGHT_GRID = (0.0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1.0)
+
+#: 녹음을 가르는 키. 한 사람의 첫 조각이 다른 사람의 마지막 조각을 이으면 안 된다.
+RECORDING = ["subject", "night"]
 
 
 def transition_log_prob(labels_per_recording) -> np.ndarray:
@@ -78,24 +86,72 @@ def _logsumexp(values: np.ndarray, axis: int) -> np.ndarray:
     return (peak + np.log(np.exp(values - peak).sum(axis=axis, keepdims=True))).squeeze(axis)
 
 
-def apply_to_predictions(pred: pd.DataFrame, lag: int | None, weight: float = 1.0) -> np.ndarray:
-    """저장해 둔 확률에 후처리를 걸어 새 판정을 낸다.
-
-    묶음마다 그 묶음의 평가 대상을 뺀 나머지 라벨로 표를 만든다. 평가 대상의 정답은
-    보지 않는다. 전체 라벨로 만들면 조용히 점수가 부풀려진다.
-    """
+def _prepare(pred: pd.DataFrame):
+    """확률을 로그로 바꾸고, 녹음마다 시간 순서인 행 번호를 뽑아 둔다."""
+    pred = pred.sort_values([*RECORDING, "epoch_idx"]).reset_index(drop=True)
     proba = pred[[f"proba_{s}" for s in STAGE_NAMES]].to_numpy(dtype="float64")
     log_emission = np.log(np.clip(proba, 1e-12, None))
-    out = np.empty(len(pred), dtype=np.int64)
+    groups = [g.index.to_numpy() for _, g in pred.groupby(RECORDING, sort=False)]
+    fold_of = pred["fold"].to_numpy()
+    return pred, log_emission, groups, np.array([fold_of[g[0]] for g in groups])
 
-    for fold, rows in pred.groupby("fold").indices.items():
-        train = pred[pred["fold"] != fold]
-        log_trans = weight * transition_log_prob(
-            g["stage"].to_numpy() for _, g in train.groupby(["subject", "night"], sort=False)
-        )
-        # 녹음 하나씩, 시간 순서대로 넘긴다. 순서가 섞이면 전이가 뜻을 잃는다.
-        block = pred.iloc[rows]
-        for _, g in block.sort_values("epoch_idx").groupby(["subject", "night"], sort=False):
-            take = np.asarray([pred.index.get_loc(i) for i in g.index])
-            out[take] = decode(log_emission[take], log_trans, lag)
+
+def _decode_groups(log_emission, groups, log_trans, weight, lag) -> np.ndarray:
+    out = np.concatenate([decode(log_emission[g], weight * log_trans, lag) for g in groups])
     return out
+
+
+def apply(
+    pred: pd.DataFrame,
+    lag: int | None = 0,
+    weight: float | None = None,
+    grid=WEIGHT_GRID,
+) -> tuple[pd.DataFrame, dict]:
+    """저장해 둔 확률에 후처리를 걸어 새 판정을 낸다.
+
+    ``weight`` 를 주면 그 세기를 그대로 쓰고, 비우면 묶음마다 나머지 묶음 안에서
+    고른다. 어느 쪽이든 표는 그 묶음의 평가 대상을 뺀 라벨로만 만든다.
+    """
+    pred, log_emission, groups, group_fold = _prepare(pred)
+    y = pred["stage"].to_numpy()
+    out = np.empty(len(pred), dtype=np.int64)
+    chosen: dict[int, float] = {}
+
+    for fold in sorted(set(group_fold.tolist())):
+        inner = [g for g, f in zip(groups, group_fold, strict=True) if f != fold]
+        outer = [g for g, f in zip(groups, group_fold, strict=True) if f == fold]
+        log_trans = transition_log_prob(y[g] for g in inner)
+
+        w = weight
+        if w is None:
+            truth = np.concatenate([y[g] for g in inner])
+            scores = [
+                f1_score(
+                    truth,
+                    _decode_groups(log_emission, inner, log_trans, cand, lag),
+                    average="macro",
+                    zero_division=0,
+                )
+                for cand in grid
+            ]
+            w = grid[int(np.argmax(scores))]
+        chosen[int(fold)] = float(w)
+
+        for g in outer:
+            out[g] = decode(log_emission[g], w * log_trans, lag)
+
+    pred = pred.copy()
+    pred["pred_smoothed"] = out.astype(np.int8)
+    return pred, {"lag": lag, "weights": chosen}
+
+
+def score(pred: pd.DataFrame, column: str) -> dict[str, float]:
+    """묶음별 macro-F1 과 전체 macro-F1."""
+    per_fold = [
+        float(f1_score(g["stage"], g[column], average="macro", zero_division=0))
+        for _, g in pred.groupby("fold")
+    ]
+    return {
+        "macro_f1": float(f1_score(pred["stage"], pred[column], average="macro", zero_division=0)),
+        "folds": per_fold,
+    }
