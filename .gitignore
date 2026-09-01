@@ -20,3 +20,6 @@ logs/
 htmlcov/
 .DS_Store
 .claude/settings.local.json
+
+# catboost 학습 로그
+catboost_info/

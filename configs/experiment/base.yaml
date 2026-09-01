@@ -1,15 +1,24 @@
-# 4단계 학습 설정. 실행 산출물은 runs/<실행해시>/ 에 모인다.
+# 학습 설정. 실행 산출물은 runs/<모델>/<전처리>/<옵션>/<실행해시>/ 에 모인다.
 train:
-  features: data/features/181306a1fc8f.parquet   # causal / expanding / none
+  # 여기 적지 않는다. 파일 이름이 특징 설정에서 계산되므로 적어 두면 낡는다.
+  # 실행할 때마다 --set train.features 로 준다. 경로는 sleepstage feature-path 가 낸다.
+  features: null
   splits: data/splits/subject_10fold.json
   model: histgb
   # macro-F1 이 클래스를 동등하게 보므로 학습도 그렇게 맞춘다.
-  # 커스텀 그리드(YASA 방식)는 누수 위험 + 학습 3,240회라 Phase 3 으로.
   class_weight: balanced
   seed: 0
   # 부스팅은 결측을 네이티브로 받는다. 선형 baseline 비교 때만 true 로.
   drop_missing: false
   # all / fpz_only / pz_only / no_distance — ablation 용 열 선택
   feature_subset: all
+  # none / age / age+sex — 사람에 대해 원래 아는 값을 특징으로 넣는다
+  subject_info: none
+  subject_table: data/raw/edfx/physionet.org/files/sleep-edfx/1.0.0/SC-subjects.xls
+  # 나이 구간마다 같은 무게가 되도록 조각별 가중치를 준다
+  age_weight: false
+  # 부스팅이 쓸 코어 수. 비우면 코드의 기본값을 쓴다.
+  # 실험을 동시에 돌릴 때 나눠 준다. 결과는 이 값과 무관하다.
+  threads: null
   out_dir: runs
   mlflow: true

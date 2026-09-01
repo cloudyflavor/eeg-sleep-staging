@@ -1,0 +1,39 @@
+{
+  "version": "v1",
+  "trained_on": {
+    "dataset": "Sleep-EDF Expanded, Sleep-Cassette",
+    "subjects": 78,
+    "recordings": 153,
+    "epochs": 195441,
+    "dropped_missing_rows": 38
+  },
+  "environment": {
+    "python": "3.12.12",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.9.0",
+    "catboost": "1.2.10",
+    "xgboost": "3.4.1",
+    "lightgbm": "4.7.0",
+    "scipy": "1.18.1",
+    "mne": "1.12.1",
+    "antropy": "0.2.2"
+  },
+  "git_commit": "f73f1fb7ad4d7f40520afce75c007eb27c222668",
+  "limitations": [
+    "건강한 성인 코호트로만 학습했다, 수면장애 환자에서는 검증되지 않았다",
+    "4-class 로 N1 과 N2 를 합쳤다, 5-class 문헌과 직접 비교할 수 없다",
+    "100 Hz 2채널 EEG 를 전제한다, 다른 기기에서는 진폭 분포가 달라질 수 있다",
+    "wake 절단 경계를 정답 라벨로 정했다, 취침 시 착용을 전제한다"
+  ],
+  "performance": {
+    "protocol": "subject-wise 10-fold CV",
+    "macro_f1": 0.8381,
+    "accuracy": 0.8662,
+    "kappa": 0.7977,
+    "f1_W": 0.9251,
+    "f1_LS": 0.8616,
+    "f1_DS": 0.7874,
+    "f1_R": 0.7782
+  }
+}

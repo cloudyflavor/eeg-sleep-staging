@@ -1,0 +1,24 @@
+{
+  "preprocess": {
+    "filter": "zerophase",
+    "normalize": "expanding",
+    "context": "smooth",
+    "distance_features": true
+  },
+  "epoch_seconds": 30,
+  "sfreq": 100.0,
+  "channels": [
+    "EEG Fpz-Cz",
+    "EEG Pz-Oz"
+  ],
+  "stage_names": [
+    "W",
+    "LS",
+    "DS",
+    "R"
+  ],
+  "model_type": "catboost",
+  "model_file": "model.cbm",
+  "class_weight": "balanced",
+  "seed": 0
+}

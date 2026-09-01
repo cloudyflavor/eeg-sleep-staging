@@ -1,4 +1,9 @@
-"""설정 로딩과 해시. 실험 하나 = 설정 파일 하나. 해시는 산출물 추적과 멱등 재개의 축."""
+"""설정 파일을 읽고 내용을 짧은 문자열로 요약한다.
+
+값을 코드에 적지 않고 파일로 빼두면 코드를 고치지 않고 실험을 바꿀 수 있다.
+설정 내용을 요약한 문자열은 결과 파일 이름이 되어, 어떤 설정으로 만든 결과인지
+나중에 찾아볼 수 있게 한다.
+"""
 
 from __future__ import annotations
 
@@ -13,14 +18,17 @@ import yaml
 
 
 def config_hash(cfg: dict[str, Any], length: int = 12) -> str:
-    """설정을 정규화해 짧은 해시로. 키 순서가 달라도 같은 해시가 나오게 정렬한다."""
+    """설정 내용을 짧은 문자열로 요약한다. 항목 순서가 달라도 내용이 같으면 같은 값이 나온다."""
     blob = json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:length]
 
 
 @dataclass(frozen=True)
 class Config:
-    """설정·출처·해시 묶음 — 항상 같이 다니게 한다."""
+    """설정 내용과 파일 경로와 요약 문자열을 함께 들고 다니는 묶음.
+
+    따로 넘기면 어느 순간 짝이 어긋나 잘못된 이름으로 저장될 수 있다.
+    """
 
     path: Path
     data: dict[str, Any]
@@ -37,7 +45,11 @@ class Config:
         return self.data[key]
 
     def override(self, pairs: list[str]) -> Config:
-        """ "a.b=값" 목록을 적용한 새 Config. 없는 키는 예외 — 오타가 새 실험이 되는 것 방지."""
+        """일부 값만 바꾼 새 설정을 만든다.
+
+        ``"features.filter=none"`` 처럼 적는다. 없는 항목을 지정하면 오류를 낸다.
+        오타를 그냥 두면 의도하지 않은 설정으로 실험이 돌아간다.
+        """
         if not pairs:
             return self
         data = copy.deepcopy(self.data)

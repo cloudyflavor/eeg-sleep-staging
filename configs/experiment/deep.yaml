@@ -1,0 +1,27 @@
+# 신경망 학습 설정
+# 입력 형태만 빼고 부스팅 쪽과 조건을 맞춘다. 필터와 정규화 방식이 같은 이유가 그것이다.
+deep:
+  epochs_dir: data/interim/epochs
+  splits: data/splits/subject_10fold.json
+  out_dir: runs
+  device: auto
+  seed: 0
+  epochs: 20
+  batch_size: 128
+  lr: 0.001
+  workers: 4
+  class_weight: balanced
+  # 2080 Ti 는 Turing 이라 bf16 을 지원하지 않는다
+  amp: true
+  # 원신호에 거는 필터. 부스팅 쪽에서 가장 좋았던 방식과 같게 둔다.
+  filter: zerophase
+  # 진폭을 맞추는 방식. expanding 은 지나온 조각만 보므로 실시간에서도 쓸 수 있다.
+  normalize: expanding
+  # 학습용 피험자 중 학습 회차를 고르는 데 쓸 비율
+  val_ratio: 0.2
+  # 한 표본에 넣을 연속 조각 수. 0 이면 조각 하나씩 판단한다.
+  # 15 조각은 7.5분이고 앞뒤를 함께 보므로 판정이 3.5분 늦어진다.
+  sequence_length: 0
+  # 묶음을 몇 조각씩 밀며 만들지 정한다. 학습용에만 적용한다.
+  # 묶음 길이와 같게 두면 겹치지 않아서 조각당 학습 노출이 창 크기와 무관하게 같다.
+  sequence_stride: 15

@@ -1,0 +1,223 @@
+"""실제로 서비스할 모델 파일을 만든다.
+
+실험은 데이터를 나눠가며 모델을 여러 번 만들었다 버리므로 남는 파일이 없다.
+여기서 전체 데이터로 한 번 학습해 파일로 저장한다.
+
+모델 파일만으로는 어떤 순서로 값을 넣어야 하는지 알 수 없다. 순서가 어긋나면
+오류 없이 엉뚱한 답이 나오므로, 열 이름과 전처리 설정을 함께 저장한다.
+"""
+
+import contextlib
+import json
+import platform
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from sleepstage.config import Config
+from sleepstage.experiment.split import STAGE_NAMES
+from sleepstage.experiment.train import META_COLS, _fit, features_file, make_model
+
+#: 모델 종류별 저장 파일 이름
+MODEL_FILES = {"catboost": "model.cbm", "xgboost": "model.json", "lightgbm": "model.txt"}
+
+
+def save_model(model, model_type: str, out_dir: Path) -> str:
+    """모델을 파일로 저장한다.
+
+    라이브러리가 제공하는 자체 형식을 쓴다. 파이썬 객체를 통째로 저장하는 방식은
+    라이브러리 버전이 바뀌면 읽지 못하게 된다.
+    """
+    name = MODEL_FILES.get(model_type)
+    if name is None:
+        raise ValueError(f"네이티브 저장을 지원하지 않는 모델입니다: {model_type}")
+    path = out_dir / name
+    if model_type == "lightgbm":
+        model.booster_.save_model(str(path))
+    else:
+        model.save_model(str(path))
+    return name
+
+
+def _versions() -> dict[str, str]:
+    import sklearn
+
+    out = {
+        "python": platform.python_version(),
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "scikit-learn": sklearn.__version__,
+    }
+    for name in ("catboost", "xgboost", "lightgbm", "scipy", "mne", "antropy"):
+        with contextlib.suppress(Exception):  # 설치돼 있지 않으면 기록하지 않는다
+            out[name] = __import__(name).__version__
+    return out
+
+
+def _git_commit() -> str | None:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def export(
+    cfg: Config,
+    out_dir: str | Path,
+    version: str,
+    metrics_json: str | None = None,
+) -> dict[str, Any]:
+    """전체 데이터로 학습하고 서비스에 필요한 파일들을 저장한다.
+
+    모델 파일, 입력 열 이름과 순서, 전처리 설정, 성능과 한계를 적은 설명서를 만든다.
+    """
+    p = cfg["train"]
+    features_path = features_file(p)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    table = pd.read_parquet(features_path)
+    keep = table.notna().all(axis=1)
+    n_dropped = int((~keep).sum())
+    table = table[keep]
+
+    feature_names = [c for c in table.columns if c not in META_COLS]
+    X = table[feature_names].to_numpy(dtype=np.float32)
+    y = table["stage"].to_numpy()
+
+    sw = None
+    if p["class_weight"] == "balanced":
+        from sklearn.utils.class_weight import compute_sample_weight
+
+        sw = compute_sample_weight("balanced", y)
+
+    print(f"학습 {len(table):,} 에포크 × {len(feature_names)} 특징 ({p['model']})", flush=True)
+    model = _fit(make_model(cfg), X, y, sw)
+    model_file = save_model(model, p["model"], out_dir)
+
+    feature_manifest = json.loads(features_path.with_suffix(".manifest.json").read_text())
+    # 신호 조건은 특징 표가 만들어질 때 기록된다. 여기 손으로 적으면 표와 어긋난다.
+    missing = [k for k in ("sfreq", "epoch_seconds", "channels") if k not in feature_manifest]
+    if missing:
+        raise SystemExit(f"특징 표 기록에 신호 조건이 없습니다: {missing}")
+    (out_dir / "feature_names.json").write_text(
+        json.dumps(
+            {
+                "names": feature_names,
+                "lookahead_epochs": feature_manifest["lookahead_epochs"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (out_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "preprocess": feature_manifest["settings"],
+                "epoch_seconds": feature_manifest["epoch_seconds"],
+                "sfreq": feature_manifest["sfreq"],
+                "channels": feature_manifest["channels"],
+                "stage_names": list(STAGE_NAMES),
+                "model_type": p["model"],
+                "model_file": model_file,
+                "class_weight": p["class_weight"],
+                "seed": p["seed"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    card: dict[str, Any] = {
+        "version": version,
+        "trained_on": {
+            "dataset": "Sleep-EDF Expanded, Sleep-Cassette",
+            "subjects": int(table["subject"].nunique()),
+            "recordings": int(table.groupby(["subject", "night"]).ngroups),
+            "epochs": len(table),
+            "dropped_missing_rows": n_dropped,
+        },
+        "environment": _versions(),
+        "git_commit": _git_commit(),
+        "limitations": [
+            "건강한 성인 코호트로만 학습했다, 수면장애 환자에서는 검증되지 않았다",
+            "4-class 로 N1 과 N2 를 합쳤다, 5-class 문헌과 직접 비교할 수 없다",
+            "100 Hz 2채널 EEG 를 전제한다, 다른 기기에서는 진폭 분포가 달라질 수 있다",
+            "wake 절단 경계를 정답 라벨로 정했다, 취침 시 착용을 전제한다",
+        ],
+    }
+    if metrics_json:
+        m = json.loads(Path(metrics_json).read_text())["pooled"]
+        card["performance"] = {
+            "protocol": "subject-wise 10-fold CV",
+            **{k: round(v, 4) for k, v in m.items()},
+        }
+    (out_dir / "card.json").write_text(
+        json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    sizes = {f.name: round(f.stat().st_size / 1e6, 2) for f in out_dir.iterdir()}
+    return {"out_dir": str(out_dir), "n_features": len(feature_names), "files_mb": sizes}
+
+
+def _load_catboost(path: Path):
+    from catboost import CatBoostClassifier
+
+    model = CatBoostClassifier()
+    model.load_model(str(path))
+    return model
+
+
+def _load_xgboost(path: Path):
+    from xgboost import XGBClassifier
+
+    model = XGBClassifier()
+    model.load_model(str(path))
+    return model
+
+
+def _load_lightgbm(path: Path):
+    import lightgbm as lgb
+
+    return lgb.Booster(model_file=str(path))
+
+
+#: 모델 종류 -> 읽는 함수. 새 종류를 붙이려면 여기에 한 줄만 더한다.
+MODEL_LOADERS = {
+    "catboost": _load_catboost,
+    "xgboost": _load_xgboost,
+    "lightgbm": _load_lightgbm,
+}
+
+
+def load_artifact(artifact_dir: str | Path):
+    """저장된 파일들을 읽어 모델과 설정과 열 이름을 돌려준다.
+
+    서비스 쪽은 이 함수만 알면 되고 모델 종류가 무엇인지 신경 쓰지 않아도 된다.
+    모르는 종류는 다른 것으로 읽지 않고 바로 오류를 낸다.
+    """
+    artifact_dir = Path(artifact_dir)
+    config = json.loads((artifact_dir / "config.json").read_text(encoding="utf-8"))
+    names = json.loads((artifact_dir / "feature_names.json").read_text(encoding="utf-8"))
+
+    kind = config["model_type"]
+    if kind not in MODEL_LOADERS:
+        raise ValueError(f"읽는 방법을 모르는 모델입니다: {kind!r} ({'/'.join(MODEL_LOADERS)})")
+    model = MODEL_LOADERS[kind](artifact_dir / config["model_file"])
+    return model, config, names["names"]
+
+
+def artifact_version(artifact_dir: str | Path) -> str:
+    """설명서에 적힌 버전을 읽는다. 없으면 폴더 이름을 쓴다."""
+    artifact_dir = Path(artifact_dir)
+    try:
+        return json.loads((artifact_dir / "card.json").read_text(encoding="utf-8"))["version"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return artifact_dir.name

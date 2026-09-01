@@ -1,25 +1,17 @@
-"""단일 진입점 CLI. 구현된 명령만 등록한다."""
+"""명령줄 진입점.
+
+전처리부터 학습, 평가, 배포 파일 생성까지 모든 작업을 하위 명령으로 제공한다.
+"""
 
 import argparse
-
-import yaml
 
 from sleepstage import __version__
 from sleepstage.config import Config
 
 
-def _cmd_config(args: argparse.Namespace) -> int:
-    """설정 파일이 어떤 해시를 만드는지 미리 확인한다."""
-    cfg = Config.load(args.path)
-    print(f"출처 : {cfg.path}")
-    print(f"해시 : {cfg.hash}\n")
-    print(yaml.safe_dump(cfg.data, allow_unicode=True, sort_keys=False))
-    return 0
-
-
 def _cmd_prepare(args: argparse.Namespace) -> int:
-    """1단계 — EDF → 에포크 npz."""
-    from sleepstage.preprocess.prepare import prepare_all
+    """EDF 를 30초 에포크 npz 로 바꾼다."""
+    from sleepstage.experiment.prepare import prepare_all
 
     cfg = Config.load(args.config)
     print(f"설정 {cfg.path}  해시 {cfg.hash}")
@@ -43,8 +35,8 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 
 
 def _cmd_features(args: argparse.Namespace) -> int:
-    """2단계 — 에포크 npz → 특징 parquet."""
-    from sleepstage.features.extract import extract_all, settings_hash
+    """에포크 npz 에서 특징을 뽑아 parquet 표로 만든다."""
+    from sleepstage.experiment.extract import extract_all, settings_hash
 
     cfg = Config.load(args.config).override(args.set or [])
     print(f"설정 {cfg.path}  설정해시 {settings_hash(cfg)}")
@@ -68,9 +60,18 @@ def _cmd_features(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_feature_path(args: argparse.Namespace) -> int:
+    """설정이 만드는 특징 표 경로만 출력한다. 스크립트가 해시를 박아 두지 않도록."""
+    from sleepstage.experiment.extract import output_path
+
+    cfg = Config.load(args.config).override(args.set or [])
+    print(output_path(cfg))
+    return 0
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
-    """1단계 산출물을 원본 EDF 와 대조한다."""
-    from sleepstage.preprocess.verify import verify_all
+    """만들어진 에포크 npz 를 원본 EDF 와 대조한다."""
+    from sleepstage.experiment.verify import verify_all
 
     cfg = Config.load(args.config)
     r = verify_all(cfg, root=args.root, npz_dir=args.epochs, samples=args.samples)
@@ -84,8 +85,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_split(args: argparse.Namespace) -> int:
-    """3단계 — 피험자 단위 fold 배정을 파일로 고정."""
-    from sleepstage.evaluation.split import write_folds
+    """피험자 단위 fold 배정을 파일로 고정한다."""
+    from sleepstage.experiment.split import write_folds
 
     m = write_folds(args.features, args.out, n_splits=args.folds, seed=args.seed)
     print(f"피험자 {m['n_subjects']}명 · 에포크 {m['n_epochs']:,} → {m['n_splits']} fold")
@@ -104,8 +105,8 @@ def _cmd_split(args: argparse.Namespace) -> int:
 
 
 def _cmd_train(args: argparse.Namespace) -> int:
-    """4단계 — 학습 + 교차검증."""
-    from sleepstage.evaluation.train import run_cv
+    """교차검증으로 학습하고 예측과 지표를 남긴다."""
+    from sleepstage.experiment.train import run_cv
 
     cfg = Config.load(args.config).override(args.set or [])
     r = run_cv(cfg, overwrite=args.overwrite)
@@ -121,35 +122,72 @@ def _cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_curve(args: argparse.Namespace) -> int:
-    """러닝 커브 — 피험자 수를 늘려가며 학습이 되는지 본다."""
-    from sleepstage.evaluation.train import learning_curve
+def _cmd_budget(args: argparse.Namespace) -> int:
+    """지연 예산별 성능 곡선."""
+    from sleepstage.experiment.budget import plot_curve, run_budgets
 
     cfg = Config.load(args.config).override(args.set or [])
-    counts = [int(x) for x in args.counts.split(",")]
-    r = learning_curve(cfg, counts, n_eval_folds=args.eval_folds)
+    budgets = [None if x == "inf" else float(x) for x in args.budgets.split(",")]
+    r = run_budgets(cfg, budgets)
     print(f"\n저장 {r['out']}")
+    if args.plot:
+        print(f"그림 {plot_curve(r['out'], args.plot)}")
     return 0
 
 
-def _cmd_tune(args: argparse.Namespace) -> int:
-    """Phase 3 — catboost 무작위 탐색 (5-fold). 우승 설정은 따로 10-fold 로 재평가."""
-    from sleepstage.evaluation.tune import search
+def _cmd_export(args: argparse.Namespace) -> int:
+    """실험 결과로 배포용 모델 아티팩트를 만든다."""
+    from sleepstage.serving.export import export
 
     cfg = Config.load(args.config).override(args.set or [])
-    r = search(cfg, n_trials=args.trials, search_folds=args.search_folds)
-    print(f"\n최고: {r['best']}\n저장 {r['out']}")
+    r = export(cfg, args.out, args.version, args.metrics)
+    print(f"\n저장 {r['out_dir']}  특징 {r['n_features']}개")
+    for name, mb in sorted(r["files_mb"].items()):
+        print(f"  {name:22} {mb:>7.2f} MB")
     return 0
 
 
-def _cmd_feature_curve(args: argparse.Namespace) -> int:
-    """중요도 상위 N개만으로 학습 — 몇 개로 충분한가."""
-    from sleepstage.evaluation.tune import feature_curve
+def _cmd_deep(args: argparse.Namespace) -> int:
+    """원신호를 그대로 넣는 신경망을 학습한다. 특징을 쓰는 모델과 조건을 맞춰 비교한다."""
+    from sleepstage.experiment.deep.train import train_fold
 
-    cfg = Config.load(args.config).override(args.set or [])
-    counts = [int(x) for x in args.counts.split(",")]
-    r = feature_curve(cfg, counts, args.importance)
-    print(f"\n저장 {r['out']}")
+    train_fold(Config.load(args.config).override(args.set or []), args.fold, args.limit)
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    """추론 API 를 띄웁니다."""
+    import os
+
+    import uvicorn
+
+    os.environ["SLEEPSTAGE_ARTIFACT"] = args.artifact
+    uvicorn.run("sleepstage.serving.api:app", host=args.host, port=args.port)
+    return 0
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    """녹음을 조각씩 흘려보내며 실시간 판정을 재현한다."""
+    from sleepstage.serving.replay import compare_with_batch, replay
+
+    r = replay(args.artifact, args.npz, limit=args.limit)
+    print(
+        f"{r['recording']}  조각 {r['n_epochs_fed']}개 투입, 판정 {r['n_decisions']}개\n"
+        f"판정 지연 {r['delay_epochs']} 조각 ({r['delay_epochs'] * 0.5:.1f}분), "
+        f"첫 판정은 {r['first_answer_after']}번째 조각에서\n"
+        f"조각당 처리 시간 평균 {r['latency_ms']['mean']} ms, "
+        f"95백분위 {r['latency_ms']['p95']} ms, 최대 {r['latency_ms']['max']} ms\n"
+        f"라벨 대비 정확도 {r['accuracy']:.4f}"
+    )
+    if args.compare:
+        subject, night = r["recording"].split("N")
+        c = compare_with_batch(args.artifact, args.compare, r, subject, int(night))
+        print(
+            f"\n한꺼번에 계산한 결과와 비교: {c['matched']}/{c['compared']} 일치"
+            f" ({c['agreement']:.4f})"
+        )
+        for e in c["examples"]:
+            print(f"  {e['position']}번째: 배치 {e['batch']} vs 스트리밍 {e['stream']}")
     return 0
 
 
@@ -158,11 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
-    c = sub.add_parser("config", help="설정 파일 확인 및 해시 출력")
-    c.add_argument("path", help="YAML 경로")
-    c.set_defaults(func=_cmd_config)
-
-    p1 = sub.add_parser("prepare", help="EDF → 에포크 npz (1단계)")
+    p1 = sub.add_parser("prepare", help="EDF 를 30초 에포크 npz 로")
     p1.add_argument("--config", required=True)
     p1.add_argument("--root", help="설정의 dataset.root 를 덮어씀")
     p1.add_argument("--out", help="설정의 output.dir 을 덮어씀")
@@ -171,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     p1.add_argument("--overwrite", action="store_true", help="설정이 같아도 다시 만듦")
     p1.set_defaults(func=_cmd_prepare)
 
-    p2 = sub.add_parser("features", help="에포크 npz → 특징 parquet (2단계)")
+    p2 = sub.add_parser("features", help="에포크 npz 에서 특징 표 만들기")
     p2.add_argument("--config", required=True)
     p2.add_argument("--epochs", help="설정의 features.epochs_dir 을 덮어씀")
     p2.add_argument("--out", help="설정의 features.out 을 덮어씀")
@@ -186,46 +220,65 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p2.set_defaults(func=_cmd_features)
 
-    v = sub.add_parser("verify", help="에포크 npz 를 원본 EDF 와 대조 (1단계 검증)")
+    v = sub.add_parser("verify", help="만들어진 에포크 npz 를 원본과 대조")
     v.add_argument("--config", required=True)
     v.add_argument("--root", help="설정의 dataset.root 를 덮어씀")
     v.add_argument("--epochs", help="설정의 output.dir 을 덮어씀")
     v.add_argument("--samples", type=int, default=3, help="녹음당 신호 대조 에포크 수")
     v.set_defaults(func=_cmd_verify)
 
-    p3 = sub.add_parser("split", help="피험자 단위 fold 배정을 파일로 고정 (3단계)")
+    pp = sub.add_parser("feature-path", help="설정이 만드는 특징 표 경로 출력")
+    pp.add_argument("--config", required=True)
+    pp.add_argument("--set", action="append", metavar="키=값")
+    pp.set_defaults(func=_cmd_feature_path)
+
+    p3 = sub.add_parser("split", help="피험자 단위 fold 배정을 파일로 고정")
     p3.add_argument("--features", required=True, help="특징 parquet 경로")
     p3.add_argument("--out", required=True, help="fold JSON 저장 경로")
     p3.add_argument("--folds", type=int, default=10)
     p3.add_argument("--seed", type=int, default=0)
     p3.set_defaults(func=_cmd_split)
 
-    p4 = sub.add_parser("train", help="학습 + 교차검증 (4단계)")
+    p4 = sub.add_parser("train", help="교차검증으로 학습")
     p4.add_argument("--config", required=True)
     p4.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
     p4.add_argument("--overwrite", action="store_true", help="산출물이 있어도 다시 학습")
     p4.set_defaults(func=_cmd_train)
 
-    p5 = sub.add_parser("curve", help="러닝 커브 (피험자 수 대비 성능)")
-    p5.add_argument("--config", required=True)
-    p5.add_argument("--counts", default="8,16,24,32,40,48,56,70")
-    p5.add_argument("--eval-folds", type=int, default=3)
-    p5.add_argument("--set", action="append", metavar="키=값", help="설정 덮어쓰기")
-    p5.set_defaults(func=_cmd_curve)
+    p8 = sub.add_parser("budget", help="지연 예산별 성능 곡선")
+    p8.add_argument("--config", required=True)
+    p8.add_argument("--budgets", default="0,1,2,4,10,inf", help="분 단위, inf 는 무제한")
+    p8.add_argument("--plot", help="곡선 PNG 저장 경로")
+    p8.add_argument("--set", action="append", metavar="키=값")
+    p8.set_defaults(func=_cmd_budget)
 
-    p6 = sub.add_parser("tune", help="하이퍼파라미터 무작위 탐색 (Phase 3)")
-    p6.add_argument("--config", required=True)
-    p6.add_argument("--trials", type=int, default=20)
-    p6.add_argument("--search-folds", type=int, default=5)
-    p6.add_argument("--set", action="append", metavar="키=값")
-    p6.set_defaults(func=_cmd_tune)
+    p9 = sub.add_parser("export", help="배포용 모델 아티팩트 생성")
+    p9.add_argument("--config", required=True)
+    p9.add_argument("--out", required=True, help="아티팩트 디렉터리")
+    p9.add_argument("--version", default="v1")
+    p9.add_argument("--metrics", help="card 에 넣을 metrics.json 경로")
+    p9.add_argument("--set", action="append", metavar="키=값")
+    p9.set_defaults(func=_cmd_export)
 
-    p7 = sub.add_parser("feature-curve", help="중요도 상위 N개 성능 곡선")
-    p7.add_argument("--config", required=True)
-    p7.add_argument("--importance", required=True, help="importance.csv 경로")
-    p7.add_argument("--counts", default="20,50,100,200,289")
-    p7.add_argument("--set", action="append", metavar="키=값")
-    p7.set_defaults(func=_cmd_feature_curve)
+    p10 = sub.add_parser("deep", help="신경망 학습 (딥러닝 비교군)")
+    p10.add_argument("--config", required=True)
+    p10.add_argument("--fold", type=int, default=0)
+    p10.add_argument("--limit", type=int, help="앞에서 N개 녹음만 (시험 실행용)")
+    p10.add_argument("--set", action="append", metavar="키=값")
+    p10.set_defaults(func=_cmd_deep)
+
+    s = sub.add_parser("serve", help="추론 API 를 띄움")
+    s.add_argument("--artifact", default="artifacts/model-v1", help="모델 파일 디렉터리")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8000)
+    s.set_defaults(func=_cmd_serve)
+
+    p11 = sub.add_parser("replay", help="녹음을 조각씩 흘려보내 실시간 판정 재현")
+    p11.add_argument("--artifact", required=True, help="모델 파일 디렉터리")
+    p11.add_argument("--npz", required=True, help="녹음 파일")
+    p11.add_argument("--limit", type=int, help="앞에서 N 조각만")
+    p11.add_argument("--compare", help="비교할 특징 parquet 경로")
+    p11.set_defaults(func=_cmd_replay)
 
     return p
 

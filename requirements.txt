@@ -1,0 +1,15 @@
+# 실험 재현용 버전 고정. 서빙만 필요하면 catboost, numpy, scipy, pandas 면 된다
+numpy==2.5.2
+scipy==1.18.1
+pandas==2.3.3
+pyarrow==25.0.1
+scikit-learn==1.9.0
+mne==1.12.1
+antropy==0.2.2
+PyYAML==6.0.3
+catboost==1.2.10
+xgboost==3.4.1
+lightgbm==4.7.0
+mlflow==3.15.1
+torch==2.13.0
+matplotlib==3.11.1

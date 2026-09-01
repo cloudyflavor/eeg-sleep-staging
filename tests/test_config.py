@@ -55,3 +55,34 @@ def test_override_leaves_original_untouched(tmp_path):
     cfg = Config.load(p)
     cfg.override(["features.filter=none"])
     assert cfg["features"]["filter"] == "causal"
+
+
+def test_code_fingerprint_follows_values_not_text():
+    """값이 같으면 코드를 어떻게 고쳤든 같은 지문이고, 값이 다르면 다른 지문이어야 한다."""
+    pytest.importorskip("antropy")
+    from unittest import mock
+
+    import sleepstage.fingerprint as fp
+    from sleepstage.core import spectral
+
+    before = fp.code_fingerprint()
+    assert before == fp.code_fingerprint(), "같은 코드인데 지문이 달라졌습니다"
+    assert len(before) == fp.LENGTH
+
+    # 대역 하나를 살짝 옮기면 값이 바뀌므로 지문도 바뀌어야 한다
+    moved = {**spectral.BANDS, "alpha": (8.0, 12.5)}
+    with mock.patch.dict(spectral.BANDS, moved, clear=True):
+        assert fp.code_fingerprint() != before, "값이 바뀌었는데 지문이 그대로입니다"
+
+
+def test_fingerprint_mismatch_stops_and_explains():
+    """조용히 건너뛰면 고친 줄 알고 옛 값으로 계속 실험하게 된다."""
+    import pytest
+
+    from sleepstage.fingerprint import check_or_explain
+
+    check_or_explain(None, "abc123", "x")  # 기록이 없으면 통과
+    check_or_explain("abc123", "abc123", "x")  # 같으면 통과
+    with pytest.raises(SystemExit) as e:
+        check_or_explain("abc123", "def456", "features.parquet")
+    assert "--overwrite" in str(e.value)

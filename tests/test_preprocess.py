@@ -1,17 +1,15 @@
-"""1단계 전처리 단위 테스트 — 실제 EDF 없이 도는 것만."""
+"""에포크 npz 를 만드는 부분의 단위 테스트. 실제 EDF 없이 도는 것만 담는다."""
 
 from __future__ import annotations
-
-import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from sleepstage.features.context import shifted
-from sleepstage.features.normalize import MIN_PERIODS, expanding_robust
-from sleepstage.io.edf import expand_annotations, find_recordings
-from sleepstage.preprocess.epochs import DROP, crop_bounds, epoch_signal, quality_metrics, to_codes
+from sleepstage.core.context import shifted
+from sleepstage.core.edf import expand_annotations, find_recordings
+from sleepstage.core.epochs import DROP, crop_bounds, epoch_signal, quality_metrics, to_codes
+from sleepstage.core.normalize import MIN_PERIODS, expanding_robust
 
 LABEL_MAP = {
     "Sleep stage W": 0,
@@ -176,9 +174,9 @@ def test_expanding_normalization_is_missing_during_warmup():
     assert out["x"][MIN_PERIODS:].notna().all()
 
 
-def test_learning_curve_subsamples_whole_subjects():
-    """부분집합도 피험자 단위여야 한다. 에포크 단위로 줄이면 누수가 그대로다."""
-    from sleepstage.evaluation.split import fold_masks
+def test_fold_masks_keep_whole_subjects():
+    """사람이 통째로 한쪽에 들어가야 한다. 에포크 단위로 갈리면 누수다."""
+    from sleepstage.experiment.split import fold_masks
 
     table = pd.DataFrame({"subject": ["A"] * 3 + ["B"] * 3 + ["C"] * 3, "x": range(9)})
     train_mask, test_mask = fold_masks(table, {"train": ["A", "B"], "test": ["C"]})
@@ -189,7 +187,7 @@ def test_learning_curve_subsamples_whole_subjects():
 
 def test_feature_subsets_select_expected_columns():
     """단일 채널 부분집합에 반대 채널·ratio 열이 새면 ablation 이 무의미해진다."""
-    from sleepstage.evaluation.train import SUBSETS
+    from sleepstage.experiment.train import SUBSETS
 
     cols = [
         "EEG Fpz-Cz__fdelta",
@@ -213,10 +211,170 @@ def test_feature_subsets_select_expected_columns():
     ]
 
 
-def test_search_space_includes_default_first():
-    """기본값을 반드시 후보에 넣어야 '튜닝이 기본값보다 나은가' 를 말할 수 있다."""
-    from sleepstage.evaluation.tune import CATBOOST_SPACE, sample_space
+def test_every_setting_changes_the_output_name():
+    """설정 하나라도 바뀌면 파일 이름이 달라져야 한다.
 
-    cand = sample_space(CATBOOST_SPACE, 8, seed=0)
-    assert cand[0] == {"depth": 6, "iterations": 1000, "learning_rate": 0.1, "l2_leaf_reg": 3}
-    assert len({json.dumps(c, sort_keys=True) for c in cand}) == 8  # 중복 없음
+    이름에서 빠진 설정이 있으면 내용이 다른 표가 같은 이름을 쓰고, 이미 있다는
+    이유로 조용히 재사용된다. 값이 틀리는 게 아니라 엉뚱한 파일을 읽는 사고다.
+    """
+    from sleepstage.experiment.extract import SETTING_KEYS, settings_hash
+
+    base = {
+        "filter": "zerophase",
+        "normalize": "expanding",
+        "context": "smooth",
+        "distance_features": True,
+        "welch_average": "median",
+        "window_extremes": False,
+        "spindle_events": False,
+        "channel_correlation": False,
+    }
+    assert set(base) == set(SETTING_KEYS)  # 키가 늘면 이 테스트도 같이 늘려야 한다
+
+    names = {settings_hash({"features": base})}
+    for key, value in base.items():
+        other = dict(base)
+        other[key] = "mean" if key == "welch_average" else not_like(value)
+        names.add(settings_hash({"features": other}))
+    assert len(names) == len(base) + 1
+
+
+def not_like(value):
+    return not value if isinstance(value, bool) else f"{value}_다른값"
+
+
+def test_added_features_get_their_own_folder():
+    """더한 실험이 기준선과 같은 폴더에 들어가면 무엇을 돌린 결과인지 알 수 없다."""
+    from sleepstage.experiment.naming import addition_slug, run_dir
+
+    base = {"filter": "zerophase", "normalize": "expanding", "context": "smooth"}
+    assert addition_slug(base) == ""
+    assert addition_slug({**base, "welch_average": "median"}) == ""  # 기본값은 안 붙는다
+    both = {**base, "welch_average": "mean", "spindle_events": True}
+    assert addition_slug(both) == "mean+spindles"
+
+    args = ("runs", "catboost", "zerophase-expanding-smooth", "cw-balanced", "abcdef123456")
+    assert str(run_dir(*args)) == "runs/catboost/zerophase-expanding-smooth/cw-balanced/abcdef"
+    assert str(run_dir(*args, "mean+spindles")) == "runs/improve/mean+spindles/abcdef"
+
+
+def test_subject_info_must_cover_every_recording():
+    """한 녹음이라도 나이가 비면 그 녹음만 다른 조건으로 학습되고 실행해도 안 보인다."""
+    import pandas as pd
+    import pytest
+
+    from sleepstage.experiment import subjects
+
+    table = pd.DataFrame({"subject": ["SC400", "SC401"], "night": [1, 1], "x": [0.0, 1.0]})
+    info = pd.DataFrame({"subject": ["SC400"], "night": [1], "age": [33], "female": [1]})
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(subjects, "load", lambda _path: info)
+        with pytest.raises(ValueError, match="피험자 정보가 없는"):
+            subjects.attach(table, "x.xls", "age")
+        got, cols = subjects.attach(table.iloc[:1], "x.xls", "age+sex")
+    assert cols == ["age", "female"]
+    assert got["age"].tolist() == [33.0]
+
+
+def test_age_weight_evens_out_the_bands():
+    """조각 수가 많은 나이대가 학습을 지배하지 않아야 한다."""
+    import numpy as np
+    import pandas as pd
+
+    from sleepstage.experiment import subjects
+
+    table = pd.DataFrame({"age": [30.0] * 90 + [85.0] * 10})
+    w = subjects.age_band_weight(table, np.ones(100, dtype=bool))
+    assert w[:90].sum() == pytest.approx(w[90:].sum())  # 두 구간의 무게 총합이 같다
+
+
+def test_channel_correlation_tells_shape_from_size():
+    """세기 비율만으로는 서파와 이마 사건이 안 갈린다. 닮았는지를 봐야 갈린다."""
+    from sleepstage.core.temporal import band_correlation
+
+    sfreq, t = 100.0, np.arange(3000) / 100.0
+    slow = 40 * np.sin(2 * np.pi * 0.8 * t)
+    # 머리 전체가 같이 출렁이는 서파. 뒤통수가 작을 뿐 파형은 같다.
+    together = band_correlation(slow[None], 0.5 * slow[None], sfreq, {"eog": (0.3, 2.0)})
+    # 이마에서만 나는 사건. 뒤통수는 무관한 신호다.
+    apart = band_correlation(
+        slow[None], (40 * np.sin(2 * np.pi * 1.3 * t + 1.0))[None], sfreq, {"eog": (0.3, 2.0)}
+    )
+    assert together["corr_eog"][0] > 0.9
+    assert abs(apart["corr_eog"][0]) < 0.5
+    # 세기 비율은 두 경우가 똑같아서 못 가른다
+    assert together["corr_broad"][0] > apart["corr_broad"][0]
+
+
+def test_budget_filters_columns_by_lookahead():
+    """예산이 특징의 필요 미래보다 작으면 그 열은 빠져야 한다"""
+    from sleepstage.experiment.budget import columns_within
+
+    look = {"a": 0, "b": 2, "c7min": 7}
+    assert columns_within(look, 0) == ["a"]
+    assert columns_within(look, 1) == ["a", "b"]
+    assert columns_within(look, 4) == ["a", "b", "c7min"]
+    assert columns_within(look, None) == ["a", "b", "c7min"]
+
+
+def test_sequence_eval_scores_every_epoch_once():
+    """조각 하나가 두 번 채점되거나 빠지면 점수가 조용히 달라진다."""
+    import numpy as np
+
+    pytest.importorskip("torch")
+    from sleepstage.experiment.deep.data import SequenceDataset
+
+    length = 15
+    for n in (length, 40, 137):
+        signals = np.zeros((n, 2, 4), dtype="float32")
+        labels = np.arange(n, dtype="int64")  # 조각 번호를 라벨 자리에 넣어 추적한다
+        ds = SequenceDataset([(signals, labels)], length, stride=1, score_all=True)
+
+        scored = np.concatenate([y[m].numpy() for _, y, m in (ds[i] for i in range(len(ds)))])
+        assert sorted(scored) == list(range(n)), f"n={n} 에서 채점 대상이 어긋납니다"
+
+
+def test_sequence_windows_do_not_cross_recordings():
+    """다른 사람의 밤이 한 묶음에 섞이면 누수다."""
+    import numpy as np
+
+    pytest.importorskip("torch")
+    from sleepstage.experiment.deep.data import SequenceDataset
+
+    a = (np.zeros((20, 2, 4), dtype="float32"), np.zeros(20, dtype="int8"))
+    b = (np.ones((20, 2, 4), dtype="float32"), np.ones(20, dtype="int8"))
+    ds = SequenceDataset([a, b], length=15, stride=1, score_all=True)
+
+    for i in range(len(ds)):
+        x, _, _ = ds[i]
+        assert len(x.unique()) == 1, "한 묶음 안에 두 녹음이 섞였습니다"
+
+
+def test_reported_lag_includes_filter_padding():
+    """필터 여유분을 빼고 세면 실제보다 짧은 지연을 보고하게 된다."""
+    pytest.importorskip("antropy")
+    from sleepstage.serving.stream import StreamingStager
+
+    config = {
+        "channels": ["a", "b"],
+        "sfreq": 100.0,
+        "stage_names": ["W", "LS", "DS", "R"],
+        "preprocess": {"context": "smooth", "filter": "zerophase", "normalize": "expanding"},
+    }
+    stager = StreamingStager(model=None, config=config, feature_names=[])
+    assert stager.lag == stager.delay + stager.filter_pad
+    assert stager.lag > stager.delay
+
+
+def test_relative_band_powers_sum_to_one():
+    """합이 1이 아니면 상대 세기가 아니고, 부족분이 델타 우세도와 상관된다."""
+    from sleepstage.core.spectral import BANDS, band_powers, welch_psd
+
+    rng = np.random.default_rng(0)
+    sfreq = 100.0
+    t = np.arange(3000) / sfreq
+    for freq, amp in ((1.0, 50.0), (10.0, 20.0), (20.0, 5.0)):
+        sig = (amp * np.sin(2 * np.pi * freq * t) + rng.normal(0, 3, 3000))[None, :]
+        got = band_powers(*welch_psd(sig, sfreq))
+        total = sum(float(got[name][0]) for name in BANDS)
+        assert abs(total - 1.0) < 1e-4, f"{freq}Hz 신호에서 합이 {total:.4f}"
