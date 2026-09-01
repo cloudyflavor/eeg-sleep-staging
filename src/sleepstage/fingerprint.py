@@ -81,6 +81,9 @@ def code_fingerprint(settings: dict | None = None) -> str:
     if s["normalize"] != "none":
         fn, _ = normalize.NORMALIZERS[s["normalize"]]
         frames.append(fn(raw).add_suffix("_norm"))
+    # 문맥은 원본에만 건다. 실제 파이프라인은 원본과 정규화를 합친 것에 걸지만,
+    # 문맥 함수는 열 종류를 가리지 않고 똑같이 다루므로 원본만으로도 그 함수가
+    # 바뀌면 값이 바뀐다. 여기를 넓히면 이미 만든 산출물의 지문이 전부 어긋난다.
     builder = context.CONTEXTS[s["context"]]
     if builder is not None:
         frames.append(builder(raw, np.arange(_N_EPOCHS))[0])

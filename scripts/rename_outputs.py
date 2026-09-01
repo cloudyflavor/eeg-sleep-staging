@@ -25,6 +25,7 @@ from sleepstage.experiment.train import run_id
 FEATURES = Path("data/features")
 RUNS = Path("runs")
 FEATURE_CONFIG = "configs/features/base.yaml"
+DEEP_CONFIG = "configs/experiment/deep.yaml"
 
 
 def _defaults() -> dict:
@@ -101,13 +102,54 @@ def rename_runs(apply: bool, tables: dict[str, str]) -> int:
     return moved
 
 
+def rename_deep_runs(apply: bool) -> int:
+    """신경망 실행을 새 이름으로 옮긴다.
+
+    옛 실행은 설정을 안 남겼다. 대신 폴더 이름이 창 크기를 담고 있고 나머지는
+    기본값이었으므로 설정을 되살릴 수 있다. 되살린 설정이 지금 폴더 이름을 그대로
+    내는지 먼저 확인하고, 확인된 것만 옮긴다.
+    """
+    from sleepstage.experiment.deep.train import run_id
+
+    base = dict(Config.load(DEEP_CONFIG)["deep"])
+    moved = 0
+    for summary in sorted(RUNS.glob("*/*/*/*/summary.json")):
+        old_dir = summary.parent
+        model, preprocess = old_dir.parts[1], old_dir.parts[2]
+        if model not in ("cnn", "lstm"):
+            continue
+        window = int(preprocess.rsplit("win", 1)[1])
+        p = dict(base, sequence_length=0 if window == 1 else window, sequence_stride=window)
+
+        if config_hash(p)[: naming.ID_LENGTH] != old_dir.name:
+            print(f"  건너뜀  {old_dir.relative_to(RUNS)}  설정을 되살리지 못했습니다")
+            continue
+        new = run_id(p)[: naming.ID_LENGTH]
+        if new == old_dir.name:
+            continue
+
+        moved += 1
+        print(f"  신경망  {old_dir.relative_to(RUNS)} -> {new}")
+        if not apply:
+            continue
+        new_dir = old_dir.with_name(new)
+        if new_dir.exists():
+            raise SystemExit(f"실행 폴더가 이미 있습니다: {new_dir}")
+        (old_dir / "params.json").write_text(
+            json.dumps({"params": p, "renamed_from": old_dir.name}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        old_dir.rename(new_dir)
+    return moved
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="실제로 옮깁니다")
     args = ap.parse_args()
 
     tables = rename_tables(args.apply)
-    runs = rename_runs(args.apply, tables)
+    runs = rename_runs(args.apply, tables) + rename_deep_runs(args.apply)
     done = "옮겼습니다" if args.apply else "바뀝니다"
     print(f"\n표 {len(tables)}개, 실행 {runs}개가 {done}.")
     if not args.apply:

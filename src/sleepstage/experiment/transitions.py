@@ -96,9 +96,36 @@ def _prepare(pred: pd.DataFrame):
     return pred, log_emission, groups, np.array([fold_of[g[0]] for g in groups])
 
 
+def decode_past_only(emissions: list[np.ndarray], log_trans: np.ndarray) -> list[np.ndarray]:
+    """녹음 여러 개를 한꺼번에 과거만 보고 푼다.
+
+    ``decode(..., lag=0)`` 과 같은 답을 낸다. 다만 녹음마다 파이썬 반복문을 도는
+    대신 모두 겹쳐 놓고 시간축으로 한 번만 돈다. 세기를 고를 때 같은 계산을
+    후보 수만큼 반복하므로 여기가 전체 시간을 정한다.
+    """
+    lengths = np.array([len(e) for e in emissions])
+    longest = int(lengths.max())
+    stacked = np.zeros((len(emissions), longest, N_STAGES))
+    for i, e in enumerate(emissions):
+        stacked[i, : len(e)] = e
+
+    alpha = np.empty_like(stacked)
+    alpha[:, 0] = stacked[:, 0]
+    for t in range(1, longest):
+        prev = alpha[:, t - 1][:, :, None] + log_trans[None]
+        peak = prev.max(axis=1)
+        alpha[:, t] = stacked[:, t] + peak + np.log(np.exp(prev - peak[:, None, :]).sum(axis=1))
+
+    best = alpha.argmax(axis=2)
+    return [best[i, : lengths[i]] for i in range(len(emissions))]
+
+
 def _decode_groups(log_emission, groups, log_trans, weight, lag) -> np.ndarray:
-    out = np.concatenate([decode(log_emission[g], weight * log_trans, lag) for g in groups])
-    return out
+    if lag == 0:
+        parts = decode_past_only([log_emission[g] for g in groups], weight * log_trans)
+    else:
+        parts = [decode(log_emission[g], weight * log_trans, lag) for g in groups]
+    return np.concatenate(parts)
 
 
 def apply(
@@ -136,9 +163,7 @@ def apply(
             ]
             w = grid[int(np.argmax(scores))]
         chosen[int(fold)] = float(w)
-
-        for g in outer:
-            out[g] = decode(log_emission[g], w * log_trans, lag)
+        out[np.concatenate(outer)] = _decode_groups(log_emission, outer, log_trans, w, lag)
 
     pred = pred.copy()
     pred["pred_smoothed"] = out.astype(np.int8)

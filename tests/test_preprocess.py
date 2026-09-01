@@ -564,3 +564,103 @@ def test_past_only_decoding_ignores_the_future():
     head = decode(emission[:10], trans, 0)
     whole = decode(emission, trans, 0)
     assert np.array_equal(head, whole[:10])
+
+
+def test_batched_decoding_matches_one_at_a_time():
+    """빠른 길이 원래 답과 갈라지면 속도만 얻고 결과가 조용히 바뀐다."""
+    from sleepstage.experiment.transitions import decode, decode_past_only, transition_log_prob
+
+    rng = np.random.default_rng(3)
+    trans = transition_log_prob([rng.integers(0, 4, 300)])
+    # 길이가 서로 달라야 채워 넣은 자리가 답을 오염시키는지 드러난다
+    emissions = [np.log(rng.dirichlet(np.ones(4), size=n)) for n in (7, 40, 3, 25)]
+
+    fast = decode_past_only(emissions, trans)
+    for got, e in zip(fast, emissions, strict=True):
+        assert np.array_equal(got, decode(e, trans, 0))
+
+
+def test_export_ships_the_columns_the_experiment_won_with(tmp_path):
+    """실험에서 이긴 열 구성과 배포한 열 구성이 다르면 오류 없이 다른 모델이 나간다."""
+    pytest.importorskip("lightgbm")
+    import json
+
+    from sleepstage.config import Config
+    from sleepstage.serving.export import export
+
+    rng = np.random.default_rng(0)
+    n = 400
+    rows = pd.DataFrame(
+        {
+            "subject": np.repeat([f"SC4{i:02d}" for i in range(4)], n // 4),
+            "night": 1,
+            "epoch_idx": np.tile(np.arange(n // 4), 4),
+            "stage": rng.integers(0, 4, n),
+            "EEG Fpz-Cz__fdelta": rng.normal(size=n),
+            "EEG Fpz-Cz__fdelta_p2min": rng.normal(size=n),
+            "EEG Pz-Oz__fdelta": rng.normal(size=n),
+            "time_hour": rng.normal(size=n),
+        }
+    )
+    features = tmp_path / "t.parquet"
+    rows.to_parquet(features, index=False)
+    (tmp_path / "t.manifest.json").write_text(
+        json.dumps(
+            {
+                "settings": {"filter": "none", "normalize": "none", "context": "smooth"},
+                "sfreq": 100.0,
+                "epoch_seconds": 30.0,
+                "channels": ["EEG Fpz-Cz", "EEG Pz-Oz"],
+                "lookahead_epochs": dict.fromkeys(rows.columns[4:], 0),
+            }
+        )
+    )
+
+    def run(subset):
+        out = tmp_path / subset
+        cfg = Config(
+            tmp_path / "c.yaml",
+            {
+                "train": {
+                    "features": str(features),
+                    "model": "lightgbm",
+                    "class_weight": "none",
+                    "seed": 0,
+                    "drop_missing": False,
+                    "feature_subset": subset,
+                    "feature_select": "none",
+                    "threads": 1,
+                }
+            },
+            "h",
+        )
+        export(cfg, out, version="test")
+        return json.loads((out / "feature_names.json").read_text())["names"]
+
+    assert run("all") == [
+        "EEG Fpz-Cz__fdelta",
+        "EEG Fpz-Cz__fdelta_p2min",
+        "EEG Pz-Oz__fdelta",
+        "time_hour",
+    ]
+    assert run("no_p2min") == ["EEG Fpz-Cz__fdelta", "EEG Pz-Oz__fdelta", "time_hour"]
+    assert run("fpz_only") == ["EEG Fpz-Cz__fdelta", "EEG Fpz-Cz__fdelta_p2min", "time_hour"]
+
+
+def test_delay_budget_counts_the_filter_too(tmp_path):
+    """필터가 무는 시간을 빼먹으면 실시간에서 못 쓸 지연을 0분으로 보고하게 된다."""
+    import json
+
+    from sleepstage.core.filters import FILTERS
+    from sleepstage.experiment.budget import EPOCH_MINUTES, columns_within, filter_minutes
+
+    lookahead = {"즉시": 0, "한칸": 1, "일곱칸": 7}
+    assert columns_within(lookahead, 0.0) == ["즉시"]
+    # 앞뒤로 거르면 그 시간만큼 먼저 물어서 0분에는 아무 열도 못 쓴다
+    assert columns_within(lookahead, 0.0, FILTERS["zerophase"][1] / 60.0) == []
+    assert columns_within(lookahead, EPOCH_MINUTES, FILTERS["causal"][1] / 60.0) == ["즉시", "한칸"]
+
+    for mode, seconds in (("zerophase", 5.0), ("causal", 0.0), ("none", 0.0)):
+        path = tmp_path / f"{mode}.parquet"
+        path.with_suffix(".manifest.json").write_text(json.dumps({"settings": {"filter": mode}}))
+        assert filter_minutes(path) == seconds / 60.0

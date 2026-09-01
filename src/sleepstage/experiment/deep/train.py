@@ -44,6 +44,28 @@ def _class_weights(labels: np.ndarray, mode: str, device) -> torch.Tensor | None
     return torch.tensor(w, dtype=torch.float32, device=device)
 
 
+#: 결과를 정하는 설정들. 부스팅 쪽 RESULT_KEYS 와 같은 이유로 따로 적는다.
+#: device 나 workers 처럼 값을 안 바꾸는 것을 넣으면, 코어 수만 건드려도
+#: 같은 실험이 다른 실행으로 갈라져 이미 있는 결과를 못 찾는다.
+RESULT_KEYS = (
+    "splits",
+    "seed",
+    "epochs",
+    "batch_size",
+    "lr",
+    "class_weight",
+    "filter",
+    "normalize",
+    "val_ratio",
+    "sequence_length",
+    "sequence_stride",
+)
+
+
+def run_id(p: dict) -> str:
+    return config_hash({k: p[k] for k in RESULT_KEYS})
+
+
 def run_dir(p: dict) -> Path:
     """무엇을 돌렸는지 폴더 계층만 보고 알 수 있게 경로를 만든다."""
     window = p["sequence_length"] if p["sequence_length"] > 0 else 1
@@ -52,7 +74,7 @@ def run_dir(p: dict) -> Path:
         "lstm" if window > 1 else "cnn",
         naming.preprocess_slug(p, window),
         naming.options_slug(p["class_weight"]),
-        config_hash(dict(p)),
+        run_id(p),
     )
 
 

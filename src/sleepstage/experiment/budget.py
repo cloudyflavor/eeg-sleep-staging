@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from sleepstage.config import Config
+from sleepstage.core import filters
 from sleepstage.experiment.split import fold_masks, load_folds
 from sleepstage.experiment.train import _fit, _metrics, features_file, load_table, make_model
 
@@ -27,11 +28,27 @@ def lookahead_table(features_path: Path) -> dict[str, int]:
     return json.loads(side.read_text(encoding="utf-8"))["lookahead_epochs"]
 
 
-def columns_within(lookahead: dict[str, int], budget_min: float | None) -> list[str]:
-    """허용 시간 안에 계산할 수 있는 열만 고른다. ``None`` 이면 제한을 두지 않는다."""
+def filter_minutes(features_path: Path) -> float:
+    """필터가 미래를 얼마나 봐야 하는지. 모든 열이 이 값을 함께 문다.
+
+    앞뒤로 거르는 필터는 뒤쪽 신호가 있어야 값이 정해진다. 특징별 미래 참조에는
+    이것이 안 들어 있어서 빼먹으면 지연을 실제보다 짧게 보고하게 된다.
+    """
+    side = features_path.with_suffix(".manifest.json")
+    mode = json.loads(side.read_text(encoding="utf-8"))["settings"]["filter"]
+    return filters.FILTERS[mode][1] / 60.0
+
+
+def columns_within(
+    lookahead: dict[str, int], budget_min: float | None, fixed_min: float = 0.0
+) -> list[str]:
+    """허용 시간 안에 계산할 수 있는 열만 고른다. ``None`` 이면 제한을 두지 않는다.
+
+    ``fixed_min`` 은 열과 무관하게 먼저 물어야 하는 시간이다. 필터가 여기 들어간다.
+    """
     if budget_min is None:
         return list(lookahead)
-    allowed = budget_min / EPOCH_MINUTES
+    allowed = (budget_min - fixed_min) / EPOCH_MINUTES
     return [c for c, look in lookahead.items() if look <= allowed]
 
 
@@ -46,13 +63,17 @@ def run_budgets(
     table, _ = load_table(features_path, p["drop_missing"])
     folds = load_folds(p["splits"])
     lookahead = lookahead_table(features_path)
+    fixed = filter_minutes(features_path)
+    if fixed:
+        print(f"  필터가 먼저 무는 시간 {fixed * 60:.0f}초", flush=True)
     y = table["stage"].to_numpy()
 
     points = []
     for budget in budgets:
-        cols = [c for c in columns_within(lookahead, budget) if c in table.columns]
+        cols = [c for c in columns_within(lookahead, budget, fixed) if c in table.columns]
         if not cols:
-            raise ValueError(f"예산 {budget}분에 쓸 수 있는 열이 없습니다")
+            print(f"  예산 {budget}분  필터가 무는 시간에 못 미쳐 건너뜁니다", flush=True)
+            continue
         X = table[cols].to_numpy(dtype=np.float32)
 
         t0 = time.perf_counter()
@@ -73,6 +94,7 @@ def run_budgets(
         points.append(
             {
                 "budget_min": budget,
+                "filter_min": fixed,
                 "n_features": len(cols),
                 **m,
                 "sec": round(time.perf_counter() - t0, 1),
@@ -117,7 +139,7 @@ def plot_curve(curve_json: str, out_png: str) -> str:
             ha="center",
             fontsize=8,
         )
-    ax.set_xlabel("delay budget (min)")
+    ax.set_xlabel("허용 지연, 분")
     ax.set_ylabel("macro-F1")
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()

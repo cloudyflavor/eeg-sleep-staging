@@ -9,6 +9,9 @@
 # 몫이 +0.30%p 에서 -0.04%p 가 된다. 즉 방추가 올린 것이 아니라 어려운 문제가
 # 시험에서 빠진 것이었다.
 #
+# 나이와 성별을 넣은 실행은 다시 안 돌린다. 방추를 넣은 표에서 그대로 비교했으므로
+# 평가 행이 이미 같았고, 효과가 없다는 결론이 그 결함과 무관하다.
+#
 # 부스팅은 결측을 그대로 받는다. drop_missing 을 끄면 모든 실행이 같은
 # 195,479 줄로 학습하고 같은 줄에서 채점받는다.
 #
@@ -20,47 +23,35 @@ BASE="--set features.filter=zerophase --set features.context=smooth"
 MEAN="$BASE --set features.welch_average=mean"
 EXT="$MEAN --set features.window_extremes=true"
 SPI="$EXT --set features.spindle_events=true"
-CORR="$SPI --set features.channel_correlation=true"
 
 path() {
     .venv/bin/sleepstage feature-path --config configs/features/base.yaml "$@"
 }
 
-# 40코어를 셋으로 나눈다. 공용 서버라 다 쓰지 않는다.
-THREADS=13
+# 공용 서버다. 40코어 중 12개까지만 쓰고 한 번에 하나씩 돌린다.
+# 우선순위도 낮춰 다른 사람이 필요할 때 양보하게 한다.
+THREADS=12
 
 run() {
     tag=$1
     table=$2
     shift 2
-    .venv/bin/sleepstage train --config configs/experiment/base.yaml \
+    nice -n 15 .venv/bin/sleepstage train --config configs/experiment/base.yaml \
         --set train.features="$table" --set train.model=catboost \
         --set train.drop_missing=false --set train.threads=$THREADS \
         "$@" > "logs/rerun_$tag.log" 2>&1
     echo "끝 $tag  $(grep -m1 '^macro-F1' "logs/rerun_$tag.log")"
 }
 
-T_MEDIAN=$(path $BASE) || exit 1
+T_BASE=$(path $BASE) || exit 1
 T_MEAN=$(path $MEAN) || exit 1
 T_EXT=$(path $EXT) || exit 1
 T_SPI=$(path $SPI) || exit 1
-T_CORR=$(path $CORR) || exit 1
-echo "표  기준선 $T_MEDIAN  mean $T_MEAN  극단값 $T_EXT  방추 $T_SPI  상관 $T_CORR"
+echo "표  기준선 $T_BASE  mean $T_MEAN  극단값 $T_EXT  방추 $T_SPI"
 
-echo "=== 1차 ==="
-run base "$T_MEDIAN" &
-run mean "$T_MEAN" &
-run extremes "$T_EXT" &
-wait
-
-echo "=== 2차 ==="
-run spindles "$T_SPI" &
-run corr "$T_CORR" &
-run age "$T_SPI" --set train.subject_info=age &
-wait
-
-echo "=== 3차 ==="
-run agesex "$T_SPI" --set train.subject_info=age+sex &
-wait
+run base "$T_BASE"
+run mean "$T_MEAN"
+run extremes "$T_EXT"
+run spindles "$T_SPI"
 
 echo "=== 완료 ==="

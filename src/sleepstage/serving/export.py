@@ -18,8 +18,17 @@ import numpy as np
 import pandas as pd
 
 from sleepstage.config import Config
+from sleepstage.experiment import select
 from sleepstage.experiment.split import STAGE_NAMES
-from sleepstage.experiment.train import META_COLS, _fit, features_file, make_model
+from sleepstage.experiment.train import (
+    META_COLS,
+    SUBSETS,
+    _fit,
+    _threads,
+    features_file,
+    load_table,
+    make_model,
+)
 
 #: 모델 종류별 저장 파일 이름
 MODEL_FILES = {"catboost": "model.cbm", "xgboost": "model.json", "lightgbm": "model.txt"}
@@ -81,12 +90,14 @@ def export(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    table = pd.read_parquet(features_path)
-    keep = table.notna().all(axis=1)
-    n_dropped = int((~keep).sum())
-    table = table[keep]
+    # 실험과 같은 방식으로 읽는다. 여기서만 결측을 버리면 실험에서 이긴 모델과
+    # 다른 모델이 배포된다
+    table, load_info = load_table(features_path, p["drop_missing"])
 
-    feature_names = [c for c in table.columns if c not in META_COLS]
+    subset = p.get("feature_subset", "all")
+    if subset not in SUBSETS:
+        raise ValueError(f"모르는 feature_subset: {subset!r} ({'/'.join(SUBSETS)})")
+    feature_names = [c for c in table.columns if c not in META_COLS and SUBSETS[subset](c)]
     X = table[feature_names].to_numpy(dtype=np.float32)
     y = table["stage"].to_numpy()
 
@@ -95,6 +106,13 @@ def export(
         from sklearn.utils.class_weight import compute_sample_weight
 
         sw = compute_sample_weight("balanced", y)
+
+    # 값을 보고 고르는 가지치기는 배포 학습에 쓰는 데이터 전체에서 한 번 고른다.
+    # 실험에서는 묶음마다 골랐지만 여기에는 평가 대상이 없다
+    picked = select.choose(p.get("feature_select", "none"), X, y, sw, _threads(p))
+    if picked is not None:
+        feature_names = [feature_names[i] for i in picked]
+        X = X[:, picked]
 
     print(f"학습 {len(table):,} 에포크 × {len(feature_names)} 특징 ({p['model']})", flush=True)
     model = _fit(make_model(cfg), X, y, sw)
@@ -109,7 +127,13 @@ def export(
         json.dumps(
             {
                 "names": feature_names,
-                "lookahead_epochs": feature_manifest["lookahead_epochs"],
+                # 내보낸 열만 남긴다. 안 쓰는 열의 미래 참조가 섞여 있으면
+                # 이 모델의 지연을 실제보다 길게 보고하게 된다
+                "lookahead_epochs": {
+                    c: feature_manifest["lookahead_epochs"][c]
+                    for c in feature_names
+                    if c in feature_manifest["lookahead_epochs"]
+                },
             },
             ensure_ascii=False,
             indent=2,
@@ -142,7 +166,7 @@ def export(
             "subjects": int(table["subject"].nunique()),
             "recordings": int(table.groupby(["subject", "night"]).ngroups),
             "epochs": len(table),
-            "dropped_missing_rows": n_dropped,
+            "dropped_missing_rows": load_info["n_dropped_missing"],
         },
         "environment": _versions(),
         "git_commit": _git_commit(),

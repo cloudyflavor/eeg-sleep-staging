@@ -49,8 +49,8 @@ def epoch_row(
     )
     row = {k: float(v) for k, v in frame.iloc[0].items()}
     if spindles is not None:
-        for name, counter in zip(channels, spindles, strict=True):
-            n, sec = counter.update(epoch[channels.index(name)])
+        for i, (name, counter) in enumerate(zip(channels, spindles, strict=True)):
+            n, sec = counter.update(epoch[i])
             row[f"{name}__spindle_n"], row[f"{name}__spindle_sec"] = float(n), sec
     return row
 
@@ -98,6 +98,8 @@ class StreamingStager:
         self.channels = config["channels"]
         self.sfreq = float(config["sfreq"])
         self.stage_names = config["stage_names"]
+        # 조각 길이를 여기 박아두면 표와 갈라진다. 배포 파일이 들고 있는 값을 쓴다.
+        self.epoch_seconds = float(config.get("epoch_seconds", 30.0))
         self.preprocess = config["preprocess"]
         self.spindles = (
             [events.SpindleCounter(self.sfreq) for _ in self.channels]
@@ -235,7 +237,7 @@ class StreamingStager:
         """
         if not self.uses_center:
             values = dict(self.buffer[-1])
-            values["time_hour"] = epoch_idx * 30.0 / 3600.0
+            values["time_hour"] = epoch_idx * self.epoch_seconds / 3600.0
             return np.array(
                 [values.get(name, np.nan) for name in self.feature_names], dtype=np.float32
             )
@@ -246,10 +248,9 @@ class StreamingStager:
 
         frame = pd.DataFrame(list(self.buffer))
         centered, _ = context.smoothed(frame)
-        values.update({k: v for k, v in centered.iloc[at].items() if k.endswith("_c7min")})
-        values.update({k: v for k, v in centered.iloc[at].items() if k.endswith("_p2min")})
+        values.update(centered.iloc[at].to_dict())
 
-        values["time_hour"] = epoch_idx * 30.0 / 3600.0
+        values["time_hour"] = epoch_idx * self.epoch_seconds / 3600.0
         return np.array([values.get(name, np.nan) for name in self.feature_names], dtype=np.float32)
 
     def _predict(self, row: np.ndarray) -> np.ndarray:
