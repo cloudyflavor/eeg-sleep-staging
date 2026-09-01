@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score
 
-from sleepstage.experiment.split import STAGE_NAMES
+from sleepstage.experiment.pipeline.folds import STAGE_NAMES
 
 N_STAGES = len(STAGE_NAMES)
 

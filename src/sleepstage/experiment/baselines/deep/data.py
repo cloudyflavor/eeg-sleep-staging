@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import Dataset
 
 from sleepstage.core import filters
-from sleepstage.experiment.extract import WARMUP_EPOCHS
+from sleepstage.experiment.pipeline.features import WARMUP_EPOCHS
 
 #: 진폭 폭을 잴 때 쓰는 분포 범위
 _Q = (5, 95)

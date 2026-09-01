@@ -11,7 +11,7 @@ from sleepstage.config import Config
 
 def _cmd_prepare(args: argparse.Namespace) -> int:
     """EDF 를 30초 에포크 npz 로 바꾼다."""
-    from sleepstage.experiment.prepare import prepare_all
+    from sleepstage.experiment.pipeline.epochs import prepare_all
 
     cfg = Config.load(args.config)
     print(f"설정 {cfg.path}  해시 {cfg.hash}")
@@ -36,7 +36,7 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 
 def _cmd_features(args: argparse.Namespace) -> int:
     """에포크 npz 에서 특징을 뽑아 parquet 표로 만든다."""
-    from sleepstage.experiment.extract import extract_all, settings_hash
+    from sleepstage.experiment.pipeline.features import extract_all, settings_hash
 
     cfg = Config.load(args.config).override(args.set or [])
     print(f"설정 {cfg.path}  설정해시 {settings_hash(cfg)}")
@@ -62,7 +62,7 @@ def _cmd_features(args: argparse.Namespace) -> int:
 
 def _cmd_feature_path(args: argparse.Namespace) -> int:
     """설정이 만드는 특징 표 경로만 출력한다. 스크립트가 해시를 박아 두지 않도록."""
-    from sleepstage.experiment.extract import output_path
+    from sleepstage.experiment.pipeline.features import output_path
 
     cfg = Config.load(args.config).override(args.set or [])
     print(output_path(cfg))
@@ -71,7 +71,7 @@ def _cmd_feature_path(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     """만들어진 에포크 npz 를 원본 EDF 와 대조한다."""
-    from sleepstage.experiment.verify import verify_all
+    from sleepstage.experiment.pipeline.crosscheck import verify_all
 
     cfg = Config.load(args.config)
     r = verify_all(cfg, root=args.root, npz_dir=args.epochs, samples=args.samples)
@@ -86,7 +86,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 def _cmd_split(args: argparse.Namespace) -> int:
     """피험자 단위 fold 배정을 파일로 고정한다."""
-    from sleepstage.experiment.split import write_folds
+    from sleepstage.experiment.pipeline.folds import write_folds
 
     m = write_folds(args.features, args.out, n_splits=args.folds, seed=args.seed)
     print(f"피험자 {m['n_subjects']}명 · 에포크 {m['n_epochs']:,} → {m['n_splits']} fold")
@@ -106,7 +106,7 @@ def _cmd_split(args: argparse.Namespace) -> int:
 
 def _cmd_train(args: argparse.Namespace) -> int:
     """교차검증으로 학습하고 예측과 지표를 남긴다."""
-    from sleepstage.experiment.train import run_cv
+    from sleepstage.experiment.modeling.cross_validate import run_cv
 
     cfg = Config.load(args.config).override(args.set or [])
     r = run_cv(cfg, overwrite=args.overwrite)
@@ -124,7 +124,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
 
 def _cmd_budget(args: argparse.Namespace) -> int:
     """지연 예산별 성능 곡선."""
-    from sleepstage.experiment.budget import plot_curve, run_budgets
+    from sleepstage.experiment.delay_curve import plot_curve, run_budgets
 
     cfg = Config.load(args.config).override(args.set or [])
     budgets = [None if x == "inf" else float(x) for x in args.budgets.split(",")]
@@ -149,7 +149,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_deep(args: argparse.Namespace) -> int:
     """원신호를 그대로 넣는 신경망을 학습한다. 특징을 쓰는 모델과 조건을 맞춰 비교한다."""
-    from sleepstage.experiment.deep.train import train_fold
+    from sleepstage.experiment.baselines.deep.train import train_fold
 
     train_fold(Config.load(args.config).override(args.set or []), args.fold, args.limit)
     return 0
@@ -199,15 +199,15 @@ def _cmd_postprocess(args: argparse.Namespace) -> int:
     import pandas as pd
     from scipy.stats import wilcoxon
 
-    from sleepstage.experiment import transitions
+    from sleepstage.experiment.modeling import smoothing
 
     run = Path(args.run)
     pred = pd.read_parquet(run / "predictions.parquet")
     lag = None if args.lag < 0 else args.lag
-    out, info = transitions.apply(pred, lag=lag, weight=args.weight)
+    out, info = smoothing.apply(pred, lag=lag, weight=args.weight)
 
-    before = transitions.score(out, "pred")
-    after = transitions.score(out, "pred_smoothed")
+    before = smoothing.score(out, "pred")
+    after = smoothing.score(out, "pred_smoothed")
     diff = [a - b for a, b in zip(after["folds"], before["folds"], strict=True)]
     result = {
         **info,

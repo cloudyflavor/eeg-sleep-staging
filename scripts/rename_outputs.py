@@ -18,9 +18,9 @@ import json
 from pathlib import Path
 
 from sleepstage.config import Config, config_hash
-from sleepstage.experiment import naming
-from sleepstage.experiment.extract import SETTING_KEYS
-from sleepstage.experiment.train import run_id
+from sleepstage.experiment import run_paths
+from sleepstage.experiment.modeling.cross_validate import run_id
+from sleepstage.experiment.pipeline.features import SETTING_KEYS
 
 FEATURES = Path("data/features")
 RUNS = Path("runs")
@@ -82,10 +82,10 @@ def rename_runs(apply: bool, tables: dict[str, str]) -> int:
 
         new = run_id(stem, train)
         old_dir = manifest_path.parent
-        if new[: naming.ID_LENGTH] == old_dir.name and train == man["train"]:
+        if new[: run_paths.ID_LENGTH] == old_dir.name and train == man["train"]:
             continue
 
-        new_dir = old_dir.with_name(new[: naming.ID_LENGTH])
+        new_dir = old_dir.with_name(new[: run_paths.ID_LENGTH])
         moved += 1
         print(f"  실행  {old_dir.relative_to(RUNS)} -> {new_dir.name}")
         if not apply:
@@ -109,7 +109,7 @@ def rename_deep_runs(apply: bool) -> int:
     기본값이었으므로 설정을 되살릴 수 있다. 되살린 설정이 지금 폴더 이름을 그대로
     내는지 먼저 확인하고, 확인된 것만 옮긴다.
     """
-    from sleepstage.experiment.deep.train import run_id
+    from sleepstage.experiment.baselines.deep.train import run_id
 
     base = dict(Config.load(DEEP_CONFIG)["deep"])
     moved = 0
@@ -121,10 +121,10 @@ def rename_deep_runs(apply: bool) -> int:
         window = int(preprocess.rsplit("win", 1)[1])
         p = dict(base, sequence_length=0 if window == 1 else window, sequence_stride=window)
 
-        if config_hash(p)[: naming.ID_LENGTH] != old_dir.name:
+        if config_hash(p)[: run_paths.ID_LENGTH] != old_dir.name:
             print(f"  건너뜀  {old_dir.relative_to(RUNS)}  설정을 되살리지 못했습니다")
             continue
-        new = run_id(p)[: naming.ID_LENGTH]
+        new = run_id(p)[: run_paths.ID_LENGTH]
         if new == old_dir.name:
             continue
 

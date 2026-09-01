@@ -176,7 +176,7 @@ def test_expanding_normalization_is_missing_during_warmup():
 
 def test_fold_masks_keep_whole_subjects():
     """사람이 통째로 한쪽에 들어가야 한다. 에포크 단위로 갈리면 누수다."""
-    from sleepstage.experiment.split import fold_masks
+    from sleepstage.experiment.pipeline.folds import fold_masks
 
     table = pd.DataFrame({"subject": ["A"] * 3 + ["B"] * 3 + ["C"] * 3, "x": range(9)})
     train_mask, test_mask = fold_masks(table, {"train": ["A", "B"], "test": ["C"]})
@@ -187,7 +187,7 @@ def test_fold_masks_keep_whole_subjects():
 
 def test_feature_subsets_select_expected_columns():
     """단일 채널 부분집합에 반대 채널·ratio 열이 새면 ablation 이 무의미해진다."""
-    from sleepstage.experiment.train import SUBSETS
+    from sleepstage.experiment.modeling.cross_validate import SUBSETS
 
     cols = [
         "EEG Fpz-Cz__fdelta",
@@ -217,7 +217,7 @@ def test_every_setting_changes_the_output_name():
     이름에서 빠진 설정이 있으면 내용이 다른 표가 같은 이름을 쓰고, 이미 있다는
     이유로 조용히 재사용된다. 값이 틀리는 게 아니라 엉뚱한 파일을 읽는 사고다.
     """
-    from sleepstage.experiment.extract import SETTING_KEYS, settings_hash
+    from sleepstage.experiment.pipeline.features import SETTING_KEYS, settings_hash
 
     base = {
         "filter": "zerophase",
@@ -245,7 +245,7 @@ def not_like(value):
 
 def test_added_features_get_their_own_folder():
     """더한 실험이 기준선과 같은 폴더에 들어가면 무엇을 돌린 결과인지 알 수 없다."""
-    from sleepstage.experiment.naming import addition_slug, run_dir
+    from sleepstage.experiment.run_paths import addition_slug, run_dir
 
     base = {"filter": "zerophase", "normalize": "expanding", "context": "smooth"}
     assert addition_slug(base) == ""
@@ -268,15 +268,15 @@ def test_subject_info_must_cover_every_recording():
     import pandas as pd
     import pytest
 
-    from sleepstage.experiment import subjects
+    from sleepstage.experiment.modeling import subject_info
 
     table = pd.DataFrame({"subject": ["SC400", "SC401"], "night": [1, 1], "x": [0.0, 1.0]})
     info = pd.DataFrame({"subject": ["SC400"], "night": [1], "age": [33], "female": [1]})
     with pytest.MonkeyPatch.context() as m:
-        m.setattr(subjects, "load", lambda _path: info)
+        m.setattr(subject_info, "load", lambda _path: info)
         with pytest.raises(ValueError, match="피험자 정보가 없는"):
-            subjects.attach(table, "x.xls", "age")
-        got, cols = subjects.attach(table.iloc[:1], "x.xls", "age+sex")
+            subject_info.attach(table, "x.xls", "age")
+        got, cols = subject_info.attach(table.iloc[:1], "x.xls", "age+sex")
     assert cols == ["age", "female"]
     assert got["age"].tolist() == [33.0]
 
@@ -286,10 +286,10 @@ def test_age_weight_evens_out_the_bands():
     import numpy as np
     import pandas as pd
 
-    from sleepstage.experiment import subjects
+    from sleepstage.experiment.modeling import subject_info
 
     table = pd.DataFrame({"age": [30.0] * 90 + [85.0] * 10})
-    w = subjects.age_band_weight(table, np.ones(100, dtype=bool))
+    w = subject_info.age_band_weight(table, np.ones(100, dtype=bool))
     assert w[:90].sum() == pytest.approx(w[90:].sum())  # 두 구간의 무게 총합이 같다
 
 
@@ -313,7 +313,7 @@ def test_channel_correlation_tells_shape_from_size():
 
 def test_budget_filters_columns_by_lookahead():
     """예산이 특징의 필요 미래보다 작으면 그 열은 빠져야 한다"""
-    from sleepstage.experiment.budget import columns_within
+    from sleepstage.experiment.delay_curve import columns_within
 
     look = {"a": 0, "b": 2, "c7min": 7}
     assert columns_within(look, 0) == ["a"]
@@ -327,7 +327,7 @@ def test_sequence_eval_scores_every_epoch_once():
     import numpy as np
 
     pytest.importorskip("torch")
-    from sleepstage.experiment.deep.data import SequenceDataset
+    from sleepstage.experiment.baselines.deep.data import SequenceDataset
 
     length = 15
     for n in (length, 40, 137):
@@ -344,7 +344,7 @@ def test_sequence_windows_do_not_cross_recordings():
     import numpy as np
 
     pytest.importorskip("torch")
-    from sleepstage.experiment.deep.data import SequenceDataset
+    from sleepstage.experiment.baselines.deep.data import SequenceDataset
 
     a = (np.zeros((20, 2, 4), dtype="float32"), np.zeros(20, dtype="int8"))
     b = (np.ones((20, 2, 4), dtype="float32"), np.ones(20, dtype="int8"))
@@ -388,7 +388,7 @@ def test_relative_band_powers_sum_to_one():
 def test_selection_keeps_one_of_two_identical_columns():
     """닮은 열을 안 걷어내면 가지치기가 이름만 가지치기다."""
     pytest.importorskip("lightgbm")
-    from sleepstage.experiment.select import choose
+    from sleepstage.experiment.modeling.feature_pruning import choose
 
     rng = np.random.default_rng(0)
     y = rng.integers(0, 4, 600)
@@ -408,7 +408,7 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
     import json
 
     from sleepstage.config import Config
-    from sleepstage.experiment import select, train
+    from sleepstage.experiment.modeling import cross_validate, feature_pruning
 
     rng = np.random.default_rng(0)
     subjects = [f"SC4{i:02d}" for i in range(10)]
@@ -445,8 +445,8 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
         seen.append(len(X))
         return np.array([0])
 
-    monkeypatch.setattr(select, "choose", spy)
-    train.run_cv(
+    monkeypatch.setattr(feature_pruning, "choose", spy)
+    cross_validate.run_cv(
         Config(
             tmp_path / "cfg.yaml",
             {
@@ -477,7 +477,7 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
 def test_selection_still_groups_when_values_are_missing():
     """결측을 그냥 두면 닮은 열의 상관이 NaN 이 되어 하나도 안 걷힌다."""
     pytest.importorskip("lightgbm")
-    from sleepstage.experiment.select import choose
+    from sleepstage.experiment.modeling.feature_pruning import choose
 
     rng = np.random.default_rng(0)
     y = rng.integers(0, 4, 600)
@@ -523,10 +523,10 @@ def _fake_predictions(rng, n_subjects=6, n_epochs=60):
 
 def test_transition_table_never_uses_the_fold_it_scores():
     """평가 묶음의 정답으로 표를 만들면 점수가 부풀고 실행해도 안 보인다."""
-    from sleepstage.experiment import transitions
+    from sleepstage.experiment.modeling import smoothing
 
     seen = []
-    real = transitions.transition_log_prob
+    real = smoothing.transition_log_prob
 
     def spy(labels_per_recording):
         labels = list(labels_per_recording)
@@ -534,11 +534,11 @@ def test_transition_table_never_uses_the_fold_it_scores():
         return real(labels)
 
     pred = _fake_predictions(np.random.default_rng(0))
-    transitions.transition_log_prob = spy
+    smoothing.transition_log_prob = spy
     try:
-        transitions.apply(pred, lag=0, weight=0.25)
+        smoothing.apply(pred, lag=0, weight=0.25)
     finally:
-        transitions.transition_log_prob = real
+        smoothing.transition_log_prob = real
 
     assert seen, "표를 아예 안 만들었다"
     assert all(n < len(pred) for n in seen), f"전체 라벨로 표를 만들었다: {seen}"
@@ -546,7 +546,7 @@ def test_transition_table_never_uses_the_fold_it_scores():
 
 def test_transitions_do_not_cross_recordings():
     """녹음 경계를 이으면 한 사람의 아침이 다른 사람의 밤으로 이어진다."""
-    from sleepstage.experiment.transitions import transition_log_prob
+    from sleepstage.experiment.modeling.smoothing import transition_log_prob
 
     apart = np.exp(transition_log_prob([np.array([0, 0]), np.array([3, 3])]))
     together = np.exp(transition_log_prob([np.array([0, 0, 3, 3])]))
@@ -555,7 +555,7 @@ def test_transitions_do_not_cross_recordings():
 
 def test_past_only_decoding_ignores_the_future():
     """과거만 본다고 해놓고 뒤를 보면 실시간에서 못 쓰는 수치를 보고하게 된다."""
-    from sleepstage.experiment.transitions import decode, transition_log_prob
+    from sleepstage.experiment.modeling.smoothing import decode, transition_log_prob
 
     rng = np.random.default_rng(1)
     emission = np.log(rng.dirichlet(np.ones(4), size=30))
@@ -568,7 +568,11 @@ def test_past_only_decoding_ignores_the_future():
 
 def test_batched_decoding_matches_one_at_a_time():
     """빠른 길이 원래 답과 갈라지면 속도만 얻고 결과가 조용히 바뀐다."""
-    from sleepstage.experiment.transitions import decode, decode_past_only, transition_log_prob
+    from sleepstage.experiment.modeling.smoothing import (
+        decode,
+        decode_past_only,
+        transition_log_prob,
+    )
 
     rng = np.random.default_rng(3)
     trans = transition_log_prob([rng.integers(0, 4, 300)])
@@ -652,7 +656,7 @@ def test_delay_budget_counts_the_filter_too(tmp_path):
     import json
 
     from sleepstage.core.filters import FILTERS
-    from sleepstage.experiment.budget import EPOCH_MINUTES, columns_within, filter_minutes
+    from sleepstage.experiment.delay_curve import EPOCH_MINUTES, columns_within, filter_minutes
 
     lookahead = {"즉시": 0, "한칸": 1, "일곱칸": 7}
     assert columns_within(lookahead, 0.0) == ["즉시"]

@@ -11,7 +11,7 @@
 import torch
 from torch import nn
 
-from sleepstage.experiment.deep.encoder import SleepCNN
+from sleepstage.experiment.baselines.deep.encoder import SleepCNN
 
 
 class SleepCNNLSTM(nn.Module):

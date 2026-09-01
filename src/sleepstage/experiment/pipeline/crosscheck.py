@@ -7,7 +7,7 @@
 import numpy as np
 
 from sleepstage.core.edf import Recording, find_recordings
-from sleepstage.experiment.prepare import _load
+from sleepstage.experiment.pipeline.epochs import _load
 
 #: 설정 파일에서 읽지 않고 여기에 다시 적는다. 설정이 잘못돼 있으면
 #: 검증도 같이 잘못되기 때문이다.

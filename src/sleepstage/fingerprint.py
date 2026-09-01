@@ -58,7 +58,7 @@ def _synthetic_epochs() -> np.ndarray:
 def code_fingerprint(settings: dict | None = None) -> str:
     """그 설정으로 가짜 신호를 계산해 나온 값을 짧은 문자열로 요약합니다."""
     from sleepstage.core import context, filters, normalize
-    from sleepstage.experiment.extract import epoch_features
+    from sleepstage.experiment.pipeline.features import epoch_features
 
     s = dict(_DEFAULT_SETTINGS, **(settings or {}))
     epochs = _synthetic_epochs()

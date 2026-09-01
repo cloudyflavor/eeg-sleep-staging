@@ -18,12 +18,12 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from sleepstage.config import Config, config_hash
-from sleepstage.experiment import naming
-from sleepstage.experiment.deep.data import build_epoch_split, build_sequence_split
-from sleepstage.experiment.deep.encoder import SleepCNN
-from sleepstage.experiment.deep.sequence import SleepCNNLSTM
-from sleepstage.experiment.split import STAGE_NAMES, load_folds
-from sleepstage.experiment.train import _metrics
+from sleepstage.experiment import run_paths
+from sleepstage.experiment.baselines.deep.data import build_epoch_split, build_sequence_split
+from sleepstage.experiment.baselines.deep.encoder import SleepCNN
+from sleepstage.experiment.baselines.deep.sequence import SleepCNNLSTM
+from sleepstage.experiment.modeling.cross_validate import _metrics
+from sleepstage.experiment.pipeline.folds import STAGE_NAMES, load_folds
 
 #: 10묶음이 다 차면 평균을 낸다
 N_FOLDS = 10
@@ -69,11 +69,11 @@ def run_id(p: dict) -> str:
 def run_dir(p: dict) -> Path:
     """무엇을 돌렸는지 폴더 계층만 보고 알 수 있게 경로를 만든다."""
     window = p["sequence_length"] if p["sequence_length"] > 0 else 1
-    return naming.run_dir(
+    return run_paths.run_dir(
         p["out_dir"],
         "lstm" if window > 1 else "cnn",
-        naming.preprocess_slug(p, window),
-        naming.options_slug(p["class_weight"]),
+        run_paths.preprocess_slug(p, window),
+        run_paths.options_slug(p["class_weight"]),
         run_id(p),
     )
 
@@ -220,7 +220,7 @@ def _write_summary(run_dir: Path) -> None:
     best = [json.loads(f.read_text())["best"] for f in folds]
     keys = [k for k, v in best[0].items() if isinstance(v, int | float) and k != "epoch"]
     summary = {
-        "run": naming.label(run_dir),
+        "run": run_paths.label(run_dir),
         "n_folds": len(best),
         "mean": {k: round(float(np.mean([b[k] for b in best])), 4) for k in keys},
         "per_fold": {k: [round(b[k], 4) for b in best] for k in keys},
@@ -229,10 +229,8 @@ def _write_summary(run_dir: Path) -> None:
     (run_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(
-        f"=== {naming.label(run_dir)} 10묶음 평균 macro-F1 {summary['mean']['macro_f1']:.4f} ===",
-        flush=True,
-    )
+    mean = summary["mean"]["macro_f1"]
+    print(f"=== {run_paths.label(run_dir)} 10묶음 평균 macro-F1 {mean:.4f} ===", flush=True)
 
 
 def _log_mlflow(params: dict, fold_idx: int, best: dict, out_dir: Path, run: Path) -> None:
@@ -242,7 +240,7 @@ def _log_mlflow(params: dict, fold_idx: int, best: dict, out_dir: Path, run: Pat
 
         mlflow.set_tracking_uri("sqlite:///mlflow.db")
         mlflow.set_experiment("sleepstage")
-        with mlflow.start_run(run_name=f"{naming.label(run)}_fold{fold_idx}"):
+        with mlflow.start_run(run_name=f"{run_paths.label(run)}_fold{fold_idx}"):
             mlflow.log_params({k: v for k, v in params.items() if not isinstance(v, dict)})
             mlflow.log_metrics({k: v for k, v in best.items() if isinstance(v, int | float)})
             mlflow.log_artifacts(str(out_dir))

@@ -18,9 +18,8 @@ import numpy as np
 import pandas as pd
 
 from sleepstage.config import Config
-from sleepstage.experiment import select
-from sleepstage.experiment.split import STAGE_NAMES
-from sleepstage.experiment.train import (
+from sleepstage.experiment.modeling import feature_pruning
+from sleepstage.experiment.modeling.cross_validate import (
     META_COLS,
     SUBSETS,
     _fit,
@@ -29,6 +28,7 @@ from sleepstage.experiment.train import (
     load_table,
     make_model,
 )
+from sleepstage.experiment.pipeline.folds import STAGE_NAMES
 
 #: 모델 종류별 저장 파일 이름
 MODEL_FILES = {"catboost": "model.cbm", "xgboost": "model.json", "lightgbm": "model.txt"}
@@ -109,7 +109,7 @@ def export(
 
     # 값을 보고 고르는 가지치기는 배포 학습에 쓰는 데이터 전체에서 한 번 고른다.
     # 실험에서는 묶음마다 골랐지만 여기에는 평가 대상이 없다
-    picked = select.choose(p.get("feature_select", "none"), X, y, sw, _threads(p))
+    picked = feature_pruning.choose(p.get("feature_select", "none"), X, y, sw, _threads(p))
     if picked is not None:
         feature_names = [feature_names[i] for i in picked]
         X = X[:, picked]

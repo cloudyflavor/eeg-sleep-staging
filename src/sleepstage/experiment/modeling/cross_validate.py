@@ -18,8 +18,9 @@ from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
 from sklearn.utils.class_weight import compute_sample_weight
 
 from sleepstage.config import Config, config_hash
-from sleepstage.experiment import naming, select, subjects
-from sleepstage.experiment.split import STAGE_NAMES, fold_masks, load_folds
+from sleepstage.experiment import run_paths
+from sleepstage.experiment.modeling import feature_pruning, subject_info
+from sleepstage.experiment.pipeline.folds import STAGE_NAMES, fold_masks, load_folds
 
 #: 모델 입력이 아닌 열들. 이 열들을 뺀 나머지가 전부 특징이다.
 META_COLS = ("subject", "night", "epoch_idx", "stage")
@@ -239,12 +240,12 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     features_path = features_file(p)
     rid = run_id(features_path.stem, p)
     settings = feature_settings(features_path)
-    added = naming.addition_slug(settings, p)
-    out_dir = naming.run_dir(
+    added = run_paths.addition_slug(settings, p)
+    out_dir = run_paths.run_dir(
         p["out_dir"],
         p["model"],
-        naming.preprocess_slug(settings),
-        naming.options_slug(p["class_weight"], p.get("feature_subset")),
+        run_paths.preprocess_slug(settings),
+        run_paths.options_slug(p["class_weight"], p.get("feature_subset")),
         rid,
         added,
     )
@@ -262,7 +263,7 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     feature_cols = [c for c in table.columns if c not in META_COLS and SUBSETS[subset](c)]
 
     # 사람에 대해 원래 아는 값은 특징 표에 굽지 않고 여기서 붙인다
-    table, extra = subjects.attach(table, p["subject_table"], p.get("subject_info", "none"))
+    table, extra = subject_info.attach(table, p["subject_table"], p.get("subject_info", "none"))
     feature_cols += extra
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -280,12 +281,12 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
         if p["class_weight"] == "balanced":
             sw = compute_sample_weight("balanced", y_all[train_mask])
         if p.get("age_weight"):
-            band = subjects.age_band_weight(table, train_mask)
+            band = subject_info.age_band_weight(table, train_mask)
             sw = band if sw is None else sw * band
 
         # 값을 보고 고르는 가지치기는 이 묶음의 학습 행만 본다. 밖에서 한 번에
         # 고르면 평가 대상의 값이 선택에 새어 들어간다
-        picked = select.choose(
+        picked = feature_pruning.choose(
             p.get("feature_select", "none"), X_all[train_mask], y_all[train_mask], sw, _threads(p)
         )
         X = X_all if picked is None else X_all[:, picked]
@@ -334,7 +335,7 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     manifest = {
         "run_id": rid,
-        "run_name": naming.label(out_dir),
+        "run_name": run_paths.label(out_dir),
         "train": p,
         "feature_settings": settings,
         "condition": _condition(settings, p, added),
@@ -357,7 +358,9 @@ def _condition(settings: dict, train_params: dict, added: str) -> dict:
     폴더 이름에는 바뀐 것만 넣는다. 고정된 조건까지 이름에 넣으면 길기만 하고
     무엇을 더한 실험인지가 안 보인다. 대신 여기에 빠짐없이 남긴다.
     """
-    changed = {key for key, default, _ in naming.ADDITIONS if settings.get(key, default) != default}
+    changed = {
+        key for key, default, _ in run_paths.ADDITIONS if settings.get(key, default) != default
+    }
     fixed = {k: v for k, v in settings.items() if k not in changed}
     for key, default in (("subject_info", "none"), ("age_weight", False)):
         if train_params.get(key, default) != default:

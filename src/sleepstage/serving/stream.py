@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from sleepstage.core import context, events, filters, normalize
-from sleepstage.experiment.extract import epoch_features
+from sleepstage.experiment.pipeline.features import epoch_features
 
 #: 필터를 걸 때 앞뒤로 함께 넣는 조각 수. 신호가 갑자기 시작하거나 끝나는 데서
 #: 생기는 왜곡을 피한다.

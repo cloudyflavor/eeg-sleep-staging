@@ -16,8 +16,14 @@ import numpy as np
 
 from sleepstage.config import Config
 from sleepstage.core import filters
-from sleepstage.experiment.split import fold_masks, load_folds
-from sleepstage.experiment.train import _fit, _metrics, features_file, load_table, make_model
+from sleepstage.experiment.modeling.cross_validate import (
+    _fit,
+    _metrics,
+    features_file,
+    load_table,
+    make_model,
+)
+from sleepstage.experiment.pipeline.folds import fold_masks, load_folds
 
 #: 에포크 하나가 몇 분인지. 허용 시간을 에포크 수로 바꿀 때 쓴다
 EPOCH_MINUTES = 0.5
