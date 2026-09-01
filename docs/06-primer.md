@@ -1,6 +1,6 @@
 # 전처리 해설 — 용어와 이유를 쉬운 말로
 
-결정 문서([`03-stage1.md`](03-stage1.md)·[`04-stage2.md`](04-stage2.md))의 압축된 근거를
+결정 문서([`04-design-stage1.md`](04-design-stage1.md)·[`05-design-stage2.md`](05-design-stage2.md))의 압축된 근거를
 처음 읽는 사람 기준으로 풀어 쓴 것. **결정의 정본은 03·04 이고, 이 문서는 해설이다.**
 
 ---
@@ -155,10 +155,10 @@ numpy 는 배열 전체를 한 번에 계산할 때 빠르다 (내부가 C). 파
 돌면 수십 배 느리다.
 
 ```python
-for i in range(841):                  # 루프 — 매번 파이썬 오버헤드
+for i in range(841):  # 루프 — 매번 파이썬 오버헤드
     out[i] = std(epochs[i])
 
-out = epochs.std(axis=-1)             # 벡터화 — 한 번에 841개
+out = epochs.std(axis=-1)  # 벡터화 — 한 번에 841개
 ```
 
 ### 왜 antropy 를 안 썼나

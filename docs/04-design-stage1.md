@@ -143,7 +143,7 @@ U-Time 은 제거 대신 손실에서 마스킹하는데, **부스팅 트리는 
 ## D5. Wake 절단 — 경계만 기록하고 자르지 않는다
 
 ```python
-w_edge = 60                                   # 30분 = 60 에포크
+w_edge = 60  # 30분 = 60 에포크
 nw = np.flatnonzero(labels != W)
 lo, hi = max(0, nw[0] - w_edge), min(len(labels), nw[-1] + w_edge + 1)
 ```

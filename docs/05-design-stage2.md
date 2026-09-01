@@ -186,9 +186,9 @@ rollc[rollc.columns] = robust_scale(rollc, quantile_range=(5, 95))
 
 ```python
 med = feat.expanding(min_periods=20).median()
-lo  = feat.expanding(min_periods=20).quantile(0.05)
-hi  = feat.expanding(min_periods=20).quantile(0.95)
-normalized = (feat - med) / (hi - lo)      # lookahead = 0
+lo = feat.expanding(min_periods=20).quantile(0.05)
+hi = feat.expanding(min_periods=20).quantile(0.95)
+normalized = (feat - med) / (hi - lo)  # lookahead = 0
 ```
 
 | | 통계 범위 | lookahead | 문제 |
