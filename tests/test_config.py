@@ -62,7 +62,7 @@ def test_code_fingerprint_follows_values_not_text():
     pytest.importorskip("antropy")
     from unittest import mock
 
-    import sleepstage.fingerprint as fp
+    import sleepstage.output_hash as fp
     from sleepstage.core import spectral
 
     before = fp.code_fingerprint()
@@ -79,7 +79,7 @@ def test_fingerprint_mismatch_stops_and_explains():
     """조용히 건너뛰면 고친 줄 알고 옛 값으로 계속 실험하게 된다."""
     import pytest
 
-    from sleepstage.fingerprint import check_or_explain
+    from sleepstage.output_hash import check_or_explain
 
     check_or_explain(None, "abc123", "x")  # 기록이 없으면 통과
     check_or_explain("abc123", "abc123", "x")  # 같으면 통과

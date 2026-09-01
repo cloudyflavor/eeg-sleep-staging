@@ -10,11 +10,9 @@ from typing import Any
 
 import numpy as np
 
+from sleepstage.experiment.pipeline.features import WARMUP_EPOCHS
 from sleepstage.serving.export import load_artifact
 from sleepstage.serving.stream import StreamingStager
-
-#: 본 구간 앞에 두는 준비 구간의 길이. 학습 때와 같은 값을 써야 결과가 일치한다.
-WARMUP_EPOCHS = 20
 
 
 def load_epochs(npz_path: str | Path) -> tuple[np.ndarray, np.ndarray, int]:

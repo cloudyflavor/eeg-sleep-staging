@@ -199,15 +199,15 @@ def _cmd_postprocess(args: argparse.Namespace) -> int:
     import pandas as pd
     from scipy.stats import wilcoxon
 
-    from sleepstage.experiment.modeling import smoothing
+    from sleepstage.experiment.modeling import stage_transitions
 
     run = Path(args.run)
     pred = pd.read_parquet(run / "predictions.parquet")
     lag = None if args.lag < 0 else args.lag
-    out, info = smoothing.apply(pred, lag=lag, weight=args.weight)
+    out, info = stage_transitions.apply(pred, lag=lag, weight=args.weight)
 
-    before = smoothing.score(out, "pred")
-    after = smoothing.score(out, "pred_smoothed")
+    before = stage_transitions.score(out, "pred")
+    after = stage_transitions.score(out, "pred_smoothed")
     diff = [a - b for a, b in zip(after["folds"], before["folds"], strict=True)]
     result = {
         **info,

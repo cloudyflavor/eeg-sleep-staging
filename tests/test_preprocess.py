@@ -388,7 +388,7 @@ def test_relative_band_powers_sum_to_one():
 def test_selection_keeps_one_of_two_identical_columns():
     """닮은 열을 안 걷어내면 가지치기가 이름만 가지치기다."""
     pytest.importorskip("lightgbm")
-    from sleepstage.experiment.modeling.feature_pruning import choose
+    from sleepstage.experiment.modeling.feature_selection import choose
 
     rng = np.random.default_rng(0)
     y = rng.integers(0, 4, 600)
@@ -408,7 +408,7 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
     import json
 
     from sleepstage.config import Config
-    from sleepstage.experiment.modeling import cross_validate, feature_pruning
+    from sleepstage.experiment.modeling import cross_validate, feature_selection
 
     rng = np.random.default_rng(0)
     subjects = [f"SC4{i:02d}" for i in range(10)]
@@ -445,7 +445,7 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
         seen.append(len(X))
         return np.array([0])
 
-    monkeypatch.setattr(feature_pruning, "choose", spy)
+    monkeypatch.setattr(feature_selection, "choose", spy)
     cross_validate.run_cv(
         Config(
             tmp_path / "cfg.yaml",
@@ -477,7 +477,7 @@ def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
 def test_selection_still_groups_when_values_are_missing():
     """결측을 그냥 두면 닮은 열의 상관이 NaN 이 되어 하나도 안 걷힌다."""
     pytest.importorskip("lightgbm")
-    from sleepstage.experiment.modeling.feature_pruning import choose
+    from sleepstage.experiment.modeling.feature_selection import choose
 
     rng = np.random.default_rng(0)
     y = rng.integers(0, 4, 600)
@@ -523,10 +523,10 @@ def _fake_predictions(rng, n_subjects=6, n_epochs=60):
 
 def test_transition_table_never_uses_the_fold_it_scores():
     """평가 묶음의 정답으로 표를 만들면 점수가 부풀고 실행해도 안 보인다."""
-    from sleepstage.experiment.modeling import smoothing
+    from sleepstage.experiment.modeling import stage_transitions
 
     seen = []
-    real = smoothing.transition_log_prob
+    real = stage_transitions.transition_log_prob
 
     def spy(labels_per_recording):
         labels = list(labels_per_recording)
@@ -534,11 +534,11 @@ def test_transition_table_never_uses_the_fold_it_scores():
         return real(labels)
 
     pred = _fake_predictions(np.random.default_rng(0))
-    smoothing.transition_log_prob = spy
+    stage_transitions.transition_log_prob = spy
     try:
-        smoothing.apply(pred, lag=0, weight=0.25)
+        stage_transitions.apply(pred, lag=0, weight=0.25)
     finally:
-        smoothing.transition_log_prob = real
+        stage_transitions.transition_log_prob = real
 
     assert seen, "표를 아예 안 만들었다"
     assert all(n < len(pred) for n in seen), f"전체 라벨로 표를 만들었다: {seen}"
@@ -546,7 +546,7 @@ def test_transition_table_never_uses_the_fold_it_scores():
 
 def test_transitions_do_not_cross_recordings():
     """녹음 경계를 이으면 한 사람의 아침이 다른 사람의 밤으로 이어진다."""
-    from sleepstage.experiment.modeling.smoothing import transition_log_prob
+    from sleepstage.experiment.modeling.stage_transitions import transition_log_prob
 
     apart = np.exp(transition_log_prob([np.array([0, 0]), np.array([3, 3])]))
     together = np.exp(transition_log_prob([np.array([0, 0, 3, 3])]))
@@ -555,7 +555,7 @@ def test_transitions_do_not_cross_recordings():
 
 def test_past_only_decoding_ignores_the_future():
     """과거만 본다고 해놓고 뒤를 보면 실시간에서 못 쓰는 수치를 보고하게 된다."""
-    from sleepstage.experiment.modeling.smoothing import decode, transition_log_prob
+    from sleepstage.experiment.modeling.stage_transitions import decode, transition_log_prob
 
     rng = np.random.default_rng(1)
     emission = np.log(rng.dirichlet(np.ones(4), size=30))
@@ -568,7 +568,7 @@ def test_past_only_decoding_ignores_the_future():
 
 def test_batched_decoding_matches_one_at_a_time():
     """빠른 길이 원래 답과 갈라지면 속도만 얻고 결과가 조용히 바뀐다."""
-    from sleepstage.experiment.modeling.smoothing import (
+    from sleepstage.experiment.modeling.stage_transitions import (
         decode,
         decode_past_only,
         transition_log_prob,
@@ -668,3 +668,24 @@ def test_delay_budget_counts_the_filter_too(tmp_path):
         path = tmp_path / f"{mode}.parquet"
         path.with_suffix(".manifest.json").write_text(json.dumps({"settings": {"filter": mode}}))
         assert filter_minutes(path) == seconds / 60.0
+
+
+def test_shared_constants_have_exactly_one_definition():
+    """같은 값을 두 군데 적어두면 한쪽만 고쳤을 때 조용히 어긋난다.
+
+    단계 이름이 갈라지면 라벨이 밀리고, 준비 구간이 갈라지면 실시간 재현이
+    배치와 다른 조각을 맞대본다. 둘 다 실행해도 안 보인다.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src" / "sleepstage"
+    files = [p for p in src.rglob("*.py") if "__pycache__" not in p.parts]
+
+    for name in ("STAGE_NAMES", "WARMUP_EPOCHS"):
+        where = [
+            str(p.relative_to(src))
+            for p in files
+            if re.search(rf"^{name} = ", p.read_text(encoding="utf-8"), re.M)
+        ]
+        assert len(where) == 1, f"{name} 이 여러 곳에 정의됐습니다: {where}"

@@ -19,7 +19,7 @@ from sklearn.utils.class_weight import compute_sample_weight
 
 from sleepstage.config import Config, config_hash
 from sleepstage.experiment import run_paths
-from sleepstage.experiment.modeling import feature_pruning, subject_info
+from sleepstage.experiment.modeling import feature_selection, subject_info
 from sleepstage.experiment.pipeline.folds import STAGE_NAMES, fold_masks, load_folds
 
 #: 모델 입력이 아닌 열들. 이 열들을 뺀 나머지가 전부 특징이다.
@@ -286,7 +286,7 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
 
         # 값을 보고 고르는 가지치기는 이 묶음의 학습 행만 본다. 밖에서 한 번에
         # 고르면 평가 대상의 값이 선택에 새어 들어간다
-        picked = feature_pruning.choose(
+        picked = feature_selection.choose(
             p.get("feature_select", "none"), X_all[train_mask], y_all[train_mask], sw, _threads(p)
         )
         X = X_all if picked is None else X_all[:, picked]

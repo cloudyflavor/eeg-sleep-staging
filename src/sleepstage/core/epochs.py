@@ -9,6 +9,10 @@ import numpy as np
 #: 지우기로 한 에포크를 표시하는 값. 실제 클래스는 0 이상이다.
 DROP = -1
 
+#: 4-class 이름과 순서. 여기 하나만 두고 나머지는 들여온다.
+#: 두 군데 적어두면 한쪽만 고쳤을 때 라벨이 조용히 어긋난다.
+STAGE_NAMES = ("W", "LS", "DS", "R")
+
 
 def to_codes(
     per_epoch: np.ndarray,

@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-STAGE_NAMES = ("W", "LS", "DS", "R")
+from sleepstage.core.epochs import STAGE_NAMES
 
 
 def make_folds(

@@ -20,8 +20,9 @@ from sleepstage.experiment.pipeline.features import WARMUP_EPOCHS
 #: 진폭 폭을 잴 때 쓰는 분포 범위
 _Q = (5, 95)
 
-#: 0 으로 나누는 것을 막는 하한
-_MIN_SCALE = 1e-6
+#: 0 으로 나누는 것을 막는 하한. 여기는 µV 단위 원신호라
+#: 특징 쪽 하한과 값이 다르다. 이름을 달리해 둘을 헷갈리지 않게 한다.
+_MIN_SPREAD = 1e-6
 
 
 def _expanding_normalize(epochs: np.ndarray) -> np.ndarray:
@@ -32,13 +33,13 @@ def _expanding_normalize(epochs: np.ndarray) -> np.ndarray:
     """
     center = np.median(epochs, axis=2)
     lo, hi = np.percentile(epochs, _Q, axis=2)
-    spread = np.maximum(hi - lo, _MIN_SCALE)
+    spread = np.maximum(hi - lo, _MIN_SPREAD)
 
     def running(a):
         return pd.DataFrame(a).expanding(min_periods=1).median().to_numpy()
 
     run_center = running(center)[:, :, None]
-    run_scale = np.maximum(running(spread), _MIN_SCALE)[:, :, None]
+    run_scale = np.maximum(running(spread), _MIN_SPREAD)[:, :, None]
     return ((epochs - run_center) / run_scale).astype("float32")
 
 

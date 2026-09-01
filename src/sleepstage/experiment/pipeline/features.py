@@ -18,9 +18,8 @@ import pandas as pd
 
 from sleepstage.config import Config, config_hash
 from sleepstage.core import context, events, filters, normalize, spectral, temporal
-from sleepstage.fingerprint import check_or_explain, code_fingerprint
-
-STAGE_NAMES = ("W", "LS", "DS", "R")
+from sleepstage.core.epochs import STAGE_NAMES
+from sleepstage.output_hash import check_or_explain, code_fingerprint
 
 #: 결과 파일의 내용을 결정하는 설정들. 저장 경로는 내용을 바꾸지 않으므로 뺀다.
 SETTING_KEYS = (
