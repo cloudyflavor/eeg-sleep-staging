@@ -10,8 +10,12 @@ train:
   seed: 0
   # 부스팅은 결측을 네이티브로 받는다. 선형 baseline 비교 때만 true 로.
   drop_missing: false
-  # all / fpz_only / pz_only / no_distance — ablation 용 열 선택
+  # 이름만 보고 거른다. 어느 행을 보든 결과가 같아 누수가 없다.
+  # all / fpz_only / pz_only / no_distance / no_p2min / no_c7min / smoothed_only / no_extremes
   feature_subset: all
+  # 값을 보고 고른다. 묶음마다 그 묶음의 학습 행만 본다.
+  # none / top:200 / decorr:0.95
+  feature_select: none
   # none / age / age+sex — 사람에 대해 원래 아는 값을 특징으로 넣는다
   subject_info: none
   subject_table: data/raw/edfx/physionet.org/files/sleep-edfx/1.0.0/SC-subjects.xls

@@ -18,7 +18,7 @@ from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
 from sklearn.utils.class_weight import compute_sample_weight
 
 from sleepstage.config import Config, config_hash
-from sleepstage.experiment import naming, subjects
+from sleepstage.experiment import naming, select, subjects
 from sleepstage.experiment.split import STAGE_NAMES, fold_masks, load_folds
 
 #: 모델 입력이 아닌 열들. 이 열들을 뺀 나머지가 전부 특징이다.
@@ -31,6 +31,12 @@ SUBSETS = {
     "fpz_only": lambda c: c.startswith("EEG Fpz-Cz") or c == "time_hour",
     "pz_only": lambda c: c.startswith("EEG Pz-Oz") or c == "time_hour",
     "no_distance": lambda c: "mmd" not in c and "esis" not in c,
+    # 문맥 축. smooth 는 밑동마다 앞뒤 평균과 최근 평균을 함께 만드는데 둘이
+    # 서로 0.95 가까이 닮아서, 한쪽만 남겨도 되는지 확인하는 자리다.
+    "no_p2min": lambda c: not c.endswith("_p2min"),
+    "no_c7min": lambda c: not c.endswith("_c7min"),
+    "smoothed_only": lambda c: c.endswith(("_c7min", "_p2min")) or c == "time_hour",
+    "no_extremes": lambda c: "_wmax" not in c and "_wmin" not in c,
 }
 
 
@@ -95,6 +101,7 @@ RESULT_KEYS = (
     "seed",
     "drop_missing",
     "feature_subset",
+    "feature_select",
     "subject_info",
     "age_weight",
 )
@@ -103,7 +110,7 @@ RESULT_KEYS = (
 # 그 표를 쓰는지 마는지는 subject_info 가 이미 말해준다.
 
 #: 이름에 안 들어가는 설정의 기본값. 옛 실행의 이름을 다시 계산할 때 채운다.
-RESULT_DEFAULTS = {"subject_info": "none", "age_weight": False}
+RESULT_DEFAULTS = {"subject_info": "none", "age_weight": False, "feature_select": "none"}
 
 
 def run_id(features_stem: str, train_params: dict) -> str:
@@ -264,7 +271,7 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     X_all = table[feature_cols].to_numpy(dtype=np.float32)
     y_all = table["stage"].to_numpy()
 
-    predictions, fold_metrics, importances = [], [], []
+    predictions, fold_metrics, importances, kept_per_fold = [], [], [], []
     t0 = time.perf_counter()
 
     for i, fold in enumerate(folds):
@@ -275,14 +282,26 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
         if p.get("age_weight"):
             band = subjects.age_band_weight(table, train_mask)
             sw = band if sw is None else sw * band
-        model = _fit(make_model(cfg), X_all[train_mask], y_all[train_mask], sw)
+
+        # 값을 보고 고르는 가지치기는 이 묶음의 학습 행만 본다. 밖에서 한 번에
+        # 고르면 평가 대상의 값이 선택에 새어 들어간다
+        picked = select.choose(
+            p.get("feature_select", "none"), X_all[train_mask], y_all[train_mask], sw, _threads(p)
+        )
+        X = X_all if picked is None else X_all[:, picked]
+        kept_per_fold.append(len(feature_cols) if picked is None else len(picked))
+
+        model = _fit(make_model(cfg), X[train_mask], y_all[train_mask], sw)
         imp = _importance(model)
         if imp is not None:
-            importances.append(imp)
+            # 묶음마다 고른 열이 달라도 더할 수 있게 전체 자리로 되돌린다
+            full = np.zeros(len(feature_cols), dtype="float64")
+            full[picked if picked is not None else slice(None)] = imp
+            importances.append(full)
 
         # 모델이 아는 클래스 순서에 맞춰 확률을 배치한다. 학습 데이터에 없던
         # 단계가 있어도 열이 밀리지 않는다
-        raw_proba = model.predict_proba(X_all[test_mask])
+        raw_proba = model.predict_proba(X[test_mask])
         proba = np.zeros((len(raw_proba), len(STAGE_NAMES)), dtype=np.float32)
         proba[:, model.classes_.astype(int)] = raw_proba
         pred = proba.argmax(axis=1)
@@ -309,6 +328,7 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
         "pooled": pooled,
         "folds": fold_metrics,
         "macro_f1_std_across_folds": float(np.std([m["macro_f1"] for m in fold_metrics])),
+        "n_kept_per_fold": kept_per_fold,
         "elapsed_sec": round(elapsed, 1),
     }
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")

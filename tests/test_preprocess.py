@@ -253,6 +253,11 @@ def test_added_features_get_their_own_folder():
     both = {**base, "welch_average": "mean", "spindle_events": True}
     assert addition_slug(both) == "mean+spindles"
 
+    # 줄인 것은 개선 계열에서만 이름에 붙는다. 탐색 계열은 options 칸이 이미 쓴다.
+    assert addition_slug(base, {"feature_subset": "no_p2min"}) == ""
+    assert addition_slug(both, {"feature_select": "top:200"}) == "mean+spindles-top200"
+    assert addition_slug(both, {"feature_subset": "no_p2min"}) == "mean+spindles-no_p2min"
+
     args = ("runs", "catboost", "zerophase-expanding-smooth", "cw-balanced", "abcdef123456")
     assert str(run_dir(*args)) == "runs/catboost/zerophase-expanding-smooth/cw-balanced/abcdef"
     assert str(run_dir(*args, "mean+spindles")) == "runs/improve/mean+spindles/abcdef"
@@ -378,3 +383,92 @@ def test_relative_band_powers_sum_to_one():
         got = band_powers(*welch_psd(sig, sfreq))
         total = sum(float(got[name][0]) for name in BANDS)
         assert abs(total - 1.0) < 1e-4, f"{freq}Hz 신호에서 합이 {total:.4f}"
+
+
+def test_selection_keeps_one_of_two_identical_columns():
+    """닮은 열을 안 걷어내면 가지치기가 이름만 가지치기다."""
+    pytest.importorskip("lightgbm")
+    from sleepstage.experiment.select import choose
+
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 4, 600)
+    signal = y + rng.normal(0, 0.3, 600)
+    X = np.column_stack([signal, signal, rng.normal(0, 1, 600)]).astype("float32")
+
+    assert choose("none", X, y) is None
+    kept = choose("decorr:0.95", X, y, threads=1)
+    assert len(kept) == 2  # 똑같은 두 열 중 하나만 남는다
+    assert len(choose("top:2", X, y, threads=1)) == 2
+    with pytest.raises(ValueError):
+        choose("top", X, y, threads=1)
+
+
+def test_selection_never_sees_the_rows_it_is_scored_on(tmp_path, monkeypatch):
+    """평가 행을 보고 열을 고르면 점수가 부풀고 실행해도 안 보인다."""
+    import json
+
+    from sleepstage.config import Config
+    from sleepstage.experiment import select, train
+
+    rng = np.random.default_rng(0)
+    subjects = [f"SC4{i:02d}" for i in range(10)]
+    rows = pd.DataFrame(
+        {
+            "subject": np.repeat(subjects, 40),
+            "night": 1,
+            "epoch_idx": np.tile(np.arange(40), 10),
+            "stage": rng.integers(0, 4, 400),
+            "a": rng.normal(size=400),
+            "b": rng.normal(size=400),
+        }
+    )
+    features = tmp_path / "t.parquet"
+    rows.to_parquet(features, index=False)
+    (tmp_path / "t.manifest.json").write_text(
+        json.dumps({"settings": {"filter": "none", "normalize": "none", "context": "none"}})
+    )
+    splits = tmp_path / "s.json"
+    splits.write_text(
+        json.dumps(
+            {
+                "folds": [
+                    {"train": subjects[5:], "test": subjects[:5]},
+                    {"train": subjects[:5], "test": subjects[5:]},
+                ]
+            }
+        )
+    )
+
+    seen = []
+
+    def spy(name, X, y, sw=None, threads=8):
+        seen.append(len(X))
+        return np.array([0])
+
+    monkeypatch.setattr(select, "choose", spy)
+    train.run_cv(
+        Config(
+            tmp_path / "cfg.yaml",
+            {
+                "train": {
+                    "features": str(features),
+                    "splits": str(splits),
+                    "model": "majority",
+                    "class_weight": "none",
+                    "seed": 0,
+                    "drop_missing": True,
+                    "feature_subset": "all",
+                    "feature_select": "top:1",
+                    "subject_info": "none",
+                    "subject_table": "",
+                    "out_dir": str(tmp_path / "runs"),
+                    "mlflow": False,
+                }
+            },
+            "testhash",
+        )
+    )
+
+    assert seen, "가지치기가 아예 불리지 않았다"
+    assert all(n < len(rows) for n in seen), f"평가 행까지 보고 골랐다: {seen}"
+    assert set(seen) == {200}

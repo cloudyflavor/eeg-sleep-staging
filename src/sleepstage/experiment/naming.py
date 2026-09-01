@@ -41,21 +41,41 @@ def run_dir(root, model: str, preprocess: str, options: str, run_id: str, added:
     return Path(root) / model / preprocess / options / run_id[:ID_LENGTH]
 
 
-#: 학습 쪽에서 더하는 것. 값이 곧 이름인 경우는 tag 를 None 으로 둔다.
+#: 학습 쪽에서 더하는 것. 값이 곧 이름이면 tag 를 None 으로, 값을 다듬어야 하면
+#: 함수를 둔다. 폴더 이름에 콜론과 마침표는 쓰지 않는다.
 TRAIN_ADDITIONS = (
     ("subject_info", "none", None),
     ("age_weight", False, "ageweight"),
 )
 
+#: 열을 줄이는 것. 더한 것과 섞이면 이름만 보고 방향을 알 수 없어서 앞에 - 를 붙인다.
+TRAIN_REDUCTIONS = (
+    ("feature_subset", "all", None),
+    ("feature_select", "none", lambda v: str(v).replace(":", "").replace(".", "")),
+)
+
+
+def _tagged(value, tag) -> str:
+    return tag(value) if callable(tag) else tag or str(value)
+
 
 def addition_slug(settings: dict, train: dict | None = None) -> str:
-    """기준선에서 더한 것만 이어 붙인다. 더한 게 없으면 빈 문자열."""
+    """더한 것은 + 로 잇고 줄인 것은 - 로 뒤에 붙인다. 아무것도 없으면 빈 문자열."""
     parts = [tag for key, default, tag in ADDITIONS if settings.get(key, default) != default]
     for key, default, tag in TRAIN_ADDITIONS:
         value = (train or {}).get(key, default)
         if value != default:
-            parts.append(tag or str(value))
-    return "+".join(parts)
+            parts.append(_tagged(value, tag))
+    slug = "+".join(parts)
+    if not slug:
+        # 더한 것이 없으면 탐색 계열이고, 거기서는 줄인 것을 options_slug 가 이미 쓴다.
+        # 여기서 또 붙이면 옛 실행이 improve 아래로 옮겨가 비교 자리를 잃는다.
+        return ""
+    for key, default, tag in TRAIN_REDUCTIONS:
+        value = (train or {}).get(key, default)
+        if value != default:
+            slug += f"-{_tagged(value, tag)}"
+    return slug
 
 
 def label(run: Path) -> str:
