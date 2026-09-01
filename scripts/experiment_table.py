@@ -4,6 +4,7 @@
 markdown 표로 출력하므로 언제든 다시 만들 수 있습니다.
 
     python scripts/experiment_table.py > docs/08-results.md
+    python scripts/experiment_table.py --readme README.md
 """
 
 import json
@@ -32,6 +33,8 @@ def tree_runs():
                 "preprocess": preprocess,
                 "options": options,
                 "n_features": info.get("n_features"),
+                "n_rows": info.get("n_rows", 0),
+                "n_dropped_missing": info.get("n_dropped_missing", 0),
                 **json.loads(path.read_text())["pooled"],
             }
         )
@@ -48,6 +51,8 @@ def improve_runs():
                 "added": path.parent.parent.name,
                 "n_features": man["n_features"],
                 "fixed": man.get("condition", {}).get("fixed", {}),
+                "n_rows": man.get("n_rows", 0),
+                "n_dropped_missing": man.get("n_dropped_missing", 0),
                 **json.loads(path.read_text())["pooled"],
             }
         )
@@ -173,3 +178,68 @@ else:
     print("아직 결과가 없습니다.")
 
 print(f"\n---\n\n탐색 {len(tree)}건, 개선 {len(improve)}건, 신경망 {len(deep)}건.")
+
+
+README_START = (
+    "<!-- 결과: scripts/experiment_table.py --readme 가 만듭니다. 손으로 고치지 마세요 -->"
+)
+README_END = "<!-- 결과 끝 -->"
+
+
+def readme_block() -> str:
+    """README 에 넣을 요약. 손으로 적으면 실행이 바뀔 때마다 어긋난다.
+
+    평가 행 수를 함께 낸다. 결측을 버린 실행과 안 버린 실행이 나란히 놓이면
+    다른 시험지에서 받은 점수를 비교하게 되는데, 그건 표만 봐서는 안 보인다.
+    """
+
+    def rows_of(entry):
+        return entry.get("n_rows", 0) - entry.get("n_dropped_missing", 0)
+
+    best = {}
+    for r in tree_runs():
+        if r["options"] != "cw-balanced":
+            continue  # 열을 뺀 실행은 모델 비교가 아니다
+        keep = best.get(r["model"])
+        if keep is None or r["macro_f1"] > keep["macro_f1"]:
+            best[r["model"]] = r
+
+    lines = [
+        README_START,
+        "",
+        f"| | {HEAD} | 평가 조각 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    top = max(improve_runs(), key=lambda r: r["macro_f1"], default=None)
+    if top:
+        cells = " | ".join(f"**{v}**" for v in fmt(top).split(" | "))
+        lines.append(f"| **특징을 더한 catboost** | {cells} | {rows_of(top):,} |")
+    for name, r in sorted(best.items(), key=lambda kv: -kv[1]["macro_f1"]):
+        if name == "majority":
+            continue
+        lines.append(f"| {name} | {fmt(r)} | {rows_of(r):,} |")
+    if "majority" in best:
+        m = best["majority"]
+        lines.append(f"| 기준선, 한 클래스만 답하기 | {fmt(m)} | {rows_of(m):,} |")
+    lines += ["", README_END]
+    return "\n".join(lines)
+
+
+def write_readme(path: Path) -> None:
+    """README 안의 표시 구간만 바꿔 쓴다. 실행 기록이 없으면 건드리지 않는다."""
+    if not tree_runs():
+        raise SystemExit(f"runs 아래에 실행이 없어 {path} 를 고치지 않습니다")
+    text = path.read_text(encoding="utf-8")
+    if README_START not in text or README_END not in text:
+        raise SystemExit(f"{path} 에 표시가 없습니다: {README_START}")
+    head, rest = text.split(README_START, 1)
+    _, tail = rest.split(README_END, 1)
+    path.write_text(head + readme_block() + tail, encoding="utf-8")
+    print(f"{path} 의 결과 표를 다시 만들었습니다")
+
+
+if __name__ == "__main__":
+    import sys
+
+    if "--readme" in sys.argv:
+        write_readme(Path(sys.argv[sys.argv.index("--readme") + 1]))

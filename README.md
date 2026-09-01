@@ -113,18 +113,22 @@ flowchart LR
 
 ## 결과
 
-| | macro-F1 | 정확도 | kappa | W | LS | DS | R |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 앙상블 | 0.840 | 0.867 | 0.799 | 0.924 | 0.863 | 0.795 | 0.778 |
-| **catboost** | **0.839** | **0.872** | **0.800** | 0.925 | 0.873 | 0.805 | 0.753 |
-| xgboost | 0.838 | 0.865 | 0.794 | 0.921 | 0.862 | 0.799 | 0.769 |
-| histgb | 0.835 | 0.862 | 0.792 | 0.921 | 0.858 | 0.790 | 0.770 |
-| ridge | 0.814 | 0.843 | 0.767 | 0.916 | 0.834 | 0.750 | 0.754 |
-| 기준선, 한 클래스만 답하기 | 0.126 | 0.337 | 0.000 | 0.504 | 0.000 | 0.000 | 0.000 |
+<!-- 결과: scripts/experiment_table.py --readme 가 만듭니다. 손으로 고치지 마세요 -->
+
+| | macro-F1 | 정확도 | kappa | W | LS | DS | R | 평가 조각 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **특징을 더한 catboost** | **0.846** | **0.872** | **0.807** | **0.925** | **0.868** | **0.794** | **0.797** | 185,111 |
+| catboost | 0.838 | 0.866 | 0.797 | 0.925 | 0.861 | 0.789 | 0.777 | 195,441 |
+| xgboost | 0.836 | 0.865 | 0.794 | 0.922 | 0.862 | 0.797 | 0.764 | 195,441 |
+| histgb | 0.834 | 0.861 | 0.789 | 0.919 | 0.856 | 0.791 | 0.769 | 195,441 |
+| lightgbm | 0.833 | 0.861 | 0.790 | 0.921 | 0.856 | 0.786 | 0.769 | 195,441 |
+| ridge | 0.811 | 0.841 | 0.764 | 0.916 | 0.832 | 0.752 | 0.745 | 195,441 |
+| 기준선, 한 클래스만 답하기 | 0.126 | 0.337 | 0.000 | 0.504 | 0.000 | 0.000 | 0.000 | 195,441 |
+
+<!-- 결과 끝 -->
 
 ![모델별 성능](assets/models.png)
 
-신경망 비교군은 조건을 다시 맞춰 재실험 중입니다.
 
 ---
 
@@ -205,10 +209,11 @@ sleepstage verify   --config configs/preprocess/base.yaml
 sleepstage features --config configs/features/base.yaml --jobs 8
 sleepstage split    --features data/features/<해시>.parquet --out data/splits/subject_10fold.json
 
-sh scripts/compare_preprocess.sh
-sh scripts/compare_models.sh
-sh scripts/ablate_features.sh
-sh scripts/compare_deep_windows.sh
+sleepstage sweep --config configs/sweeps/preprocess.yaml
+sleepstage sweep --config configs/sweeps/models.yaml
+sleepstage sweep --config configs/sweeps/feature_additions.yaml
+sleepstage sweep --config configs/sweeps/feature_pruning.yaml
+sleepstage sweep --config configs/sweeps/deep_windows.yaml
 ```
 
 배포용 모델 파일을 만들고 실시간 판정을 재현합니다.
@@ -236,7 +241,7 @@ src/sleepstage/
 └── serving/         저장된 모델로 판정합니다. core 만 쓰고 experiment 를 모릅니다
 
 configs/             전처리, 특징, 학습 설정
-scripts/             실험 축마다 하나씩
+configs/sweeps/      실험 묶음마다 하나씩
 notebooks/           결과 시각화와 오차 분석
 tests/               조용히 틀리는 것만 골라 담았습니다
 ```
