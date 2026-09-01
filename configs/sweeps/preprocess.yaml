@@ -1,0 +1,21 @@
+name: 전처리 축
+why: |
+  필터 3가지와 시간 문맥 3가지를 조합한다. 모델을 고정해서 차이가
+  전처리에서만 오게 한다. 계산이 싼 조합부터 돌린다.
+
+fixed:
+  train:
+    model: histgb
+    drop_missing: false
+    threads: 12
+
+runs:
+  - {name: none-none,           features: {filter: none,      context: none}}
+  - {name: causal-none,         features: {filter: causal,    context: none}}
+  - {name: zerophase-none,      features: {filter: zerophase, context: none}}
+  - {name: none-smooth,         features: {filter: none,      context: smooth}}
+  - {name: causal-smooth,       features: {filter: causal,    context: smooth}}
+  - {name: zerophase-smooth,    features: {filter: zerophase, context: smooth}}
+  - {name: none-shift,          features: {filter: none,      context: shift}}
+  - {name: causal-shift,        features: {filter: causal,    context: shift}}
+  - {name: zerophase-shift,     features: {filter: zerophase, context: shift}}

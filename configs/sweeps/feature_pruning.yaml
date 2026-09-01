@@ -1,0 +1,31 @@
+name: 특징 가지치기
+why: |
+  505개까지 늘린 특징이 서로 많이 닮았다. 같은 밑동의 앞뒤 평균과 최근 평균이
+  중앙값 0.947 로 닮았고 절대 상관 0.9 를 넘는 짝이 596개다. 닮은 열이 많으면
+  나무가 매번 비슷한 열 중 하나를 집어 중요도가 흩어진다.
+
+  이름으로 거르는 쪽은 어느 행을 보든 결과가 같아 누수가 없다.
+  값을 보고 고르는 쪽은 묶음 안에서 그 묶음의 학습 행만 본다.
+
+fixed:
+  features:
+    filter: zerophase
+    context: smooth
+    welch_average: mean
+    window_extremes: true
+    spindle_events: true
+    channel_correlation: true
+  train:
+    model: catboost
+    drop_missing: false
+    threads: 12
+
+runs:
+  - {name: 전부 505열}
+  - {name: 최근 2분 평균 빼기,   train: {feature_subset: no_p2min}}
+  - {name: 조각 극단값 빼기,     train: {feature_subset: no_extremes}}
+  - {name: 평활 안 한 원본 빼기, train: {feature_subset: smoothed_only}}
+  - {name: 이득 상위 200,        train: {feature_select: "top:200"}}
+  - {name: 이득 상위 300,        train: {feature_select: "top:300"}}
+  - {name: 닮은 것 걷기 0.95,    train: {feature_select: "decorr:0.95"}}
+  - {name: 닮은 것 걷기 0.90,    train: {feature_select: "decorr:0.90"}}

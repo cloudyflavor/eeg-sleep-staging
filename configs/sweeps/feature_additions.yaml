@@ -1,0 +1,19 @@
+name: 특징 추가
+why: |
+  한꺼번에 넣으면 어느 것이 얼마나 기여했는지 알 수 없다. 하나씩 더한다.
+  결측을 버리지 않는다. 방추는 대부분 0 이라 사람별 기준으로 바꿀 때 빈칸이
+  생기는데, 버리면 그 실행만 평가 대상이 줄어 비교가 깨진다.
+
+fixed:
+  features: {filter: zerophase, context: smooth}
+  train:
+    model: catboost
+    drop_missing: false
+    threads: 12
+
+runs:
+  - {name: 기준선}
+  - {name: 평균으로 합치기,     features: {welch_average: mean}}
+  - {name: 조각별 최댓값 최솟값, features: {welch_average: mean, window_extremes: true}}
+  - {name: 수면방추,           features: {welch_average: mean, window_extremes: true, spindle_events: true}}
+  - {name: 채널 상관,          features: {welch_average: mean, window_extremes: true, spindle_events: true, channel_correlation: true}}

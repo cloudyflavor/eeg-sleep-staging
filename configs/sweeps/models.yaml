@@ -1,0 +1,19 @@
+name: 모델 축
+why: |
+  전처리를 우승 조합으로 고정하고 모델만 바꾼다. 계산이 싼 모델부터 돌린다.
+  lasso 는 뺐다. 19만 행에서 좌표하강법이 2시간 넘게 걸리는데 선형 비교군은
+  ridge 하나로 충분하다. 선형 모델은 결측을 못 받으므로 여기서만 버린다.
+
+fixed:
+  features: {filter: zerophase, context: smooth}
+  train:
+    drop_missing: true
+    threads: 12
+
+runs:
+  - {name: majority, train: {model: majority}}
+  - {name: ridge,    train: {model: ridge}}
+  - {name: histgb,   train: {model: histgb}}
+  - {name: lightgbm, train: {model: lightgbm}}
+  - {name: xgboost,  train: {model: xgboost}}
+  - {name: catboost, train: {model: catboost}}

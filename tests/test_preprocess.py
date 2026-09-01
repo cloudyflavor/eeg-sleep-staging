@@ -689,3 +689,42 @@ def test_shared_constants_have_exactly_one_definition():
             if re.search(rf"^{name} = ", p.read_text(encoding="utf-8"), re.M)
         ]
         assert len(where) == 1, f"{name} 이 여러 곳에 정의됐습니다: {where}"
+
+
+def test_every_sweep_config_resolves_without_typos():
+    """설정 이름을 잘못 적으면 두 시간 뒤가 아니라 지금 알아야 한다.
+
+    override 가 모르는 항목에서 오류를 내므로, 펼쳐 보는 것만으로 오타가 잡힌다.
+    """
+    from pathlib import Path
+
+    from sleepstage.config import Config
+    from sleepstage.experiment import sweep
+
+    root = Path(__file__).resolve().parents[1]
+    configs = sorted((root / "configs" / "sweeps").glob("*.yaml"))
+    assert configs, "묶음 설정이 하나도 없습니다"
+
+    for path in configs:
+        spec = sweep.load(path)
+        assert spec.get("why"), f"{path.name} 에 why 가 없습니다"
+        kind = spec.get("kind", "train")
+        base = "deep.yaml" if kind == "deep" else "base.yaml"
+        for step in sweep.plan(spec):
+            cfg = Config.load(root / "configs" / "experiment" / base)
+            cfg.override(sweep._overrides(step[kind], kind))
+
+
+def test_sweep_keeps_fixed_conditions_in_one_place():
+    """고정 조건을 실행마다 다시 적으면 조건이 갈라져도 표에서 안 보인다."""
+    from sleepstage.experiment import sweep
+
+    spec = {
+        "name": "시험",
+        "fixed": {"train": {"model": "catboost", "drop_missing": False}},
+        "runs": [{"name": "가"}, {"name": "나", "train": {"model": "histgb"}}],
+    }
+    plans = sweep.plan(spec)
+    assert plans[0]["train"] == {"model": "catboost", "drop_missing": False}
+    # 바꾼 것만 덮이고 나머지 고정 조건은 그대로 따라온다
+    assert plans[1]["train"] == {"model": "histgb", "drop_missing": False}

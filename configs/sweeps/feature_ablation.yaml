@@ -1,0 +1,19 @@
+name: 특징 제거
+why: |
+  특징을 하나씩 빼면서 성능이 얼마나 떨어지는지 잰다. 채널 하나만 쓰기,
+  거리 기반 특징 빼기, 정규화 빼기를 본다. 모델을 고정해서 차이가
+  특징에서만 오게 한다.
+
+fixed:
+  features: {filter: zerophase, context: smooth}
+  train:
+    model: catboost
+    drop_missing: true
+    threads: 12
+
+runs:
+  - {name: 없음}
+  - {name: 이마 채널만,   train: {feature_subset: fpz_only}}
+  - {name: 뒤통수 채널만, train: {feature_subset: pz_only}}
+  - {name: 거리 기반 빼기, train: {feature_subset: no_distance}}
+  - {name: 정규화 빼기,   features: {normalize: none}}

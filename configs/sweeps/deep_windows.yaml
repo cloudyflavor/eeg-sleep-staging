@@ -1,0 +1,16 @@
+kind: deep
+name: 신경망 맥락 창 크기
+why: |
+  손으로 만든 특징 대신 원신호를 그대로 넣는 비교군이다. 나누는 기준, 잘라내는
+  범위, 필터, 진폭 정규화, 단계별 가중치, 지표를 전부 부스팅 쪽과 똑같이 맞췄다.
+  다른 것은 입력 형태뿐이다.
+
+  창 1 은 조각 하나만 보는 경우이고 창 15 는 부스팅의 평활 창과 크기와 지연이
+  같다. 창을 겹치지 않게 잘라서 조각당 학습 노출을 창 크기와 무관하게 둔다.
+
+runs:
+  - {name: 창 1,  deep: {sequence_length: 0,  sequence_stride: 1}}
+  - {name: 창 9,  deep: {sequence_length: 9,  sequence_stride: 9}}
+  - {name: 창 15, deep: {sequence_length: 15, sequence_stride: 15}}
+  - {name: 창 21, deep: {sequence_length: 21, sequence_stride: 21}}
+  - {name: 창 31, deep: {sequence_length: 31, sequence_stride: 31}}

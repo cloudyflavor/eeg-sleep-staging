@@ -320,6 +320,8 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
     pooled = _metrics(pred_df["stage"].to_numpy(), pred_df["pred"].to_numpy())
     elapsed = time.perf_counter() - t0
 
+    # 학습 사이에 폴더가 없어졌을 수 있다. 여기서 죽으면 묶음 열 개가 통째로 날아간다.
+    out_dir.mkdir(parents=True, exist_ok=True)
     pred_df.to_parquet(out_dir / "predictions.parquet", index=False)
     if importances:
         pd.DataFrame(

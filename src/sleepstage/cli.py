@@ -234,6 +234,14 @@ def _cmd_postprocess(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sweep(args: argparse.Namespace) -> int:
+    """실험 묶음을 설정 파일 하나로 돌린다."""
+    from sleepstage.experiment.sweep import run_sweep
+
+    run_sweep(args.config, jobs=args.jobs, dry_run=args.dry_run)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -332,6 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--weight", type=float, help="표를 믿는 세기. 비우면 묶음마다 나머지 묶음 안에서 고른다"
     )
     p12.set_defaults(func=_cmd_postprocess)
+
+    p13 = sub.add_parser("sweep", help="실험 묶음을 설정 파일 하나로 돌림")
+    p13.add_argument("--config", required=True, help="configs/sweeps/*.yaml")
+    p13.add_argument("--jobs", type=int, default=8, help="특징 표를 만들 때 쓸 프로세스 수")
+    p13.add_argument("--dry-run", action="store_true", help="무엇을 돌릴지만 출력")
+    p13.set_defaults(func=_cmd_sweep)
 
     return p
 
