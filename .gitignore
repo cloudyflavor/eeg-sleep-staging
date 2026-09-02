@@ -28,3 +28,6 @@ catboost_info/
 scripts/_diagram.py
 scripts/draw_architecture.py
 scripts/draw_model_architecture.py
+
+# 설계 문서는 저장소 밖에 둔다
+docs/

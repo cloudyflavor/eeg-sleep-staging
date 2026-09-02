@@ -3,7 +3,6 @@
 손으로 적으면 실험을 다시 돌릴 때마다 표가 어긋납니다. runs 아래를 읽어
 markdown 표로 출력하므로 언제든 다시 만들 수 있습니다.
 
-    python scripts/experiment_table.py > docs/08-results.md
     python scripts/experiment_table.py --readme README.md
 """
 
