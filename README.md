@@ -36,6 +36,7 @@
 ## 2. Performance
 
 CatBoost, subject-wise 10-fold cross-validation 입니다.
+단계는 **W** (각성), **LS** (얕은잠), **DS** (깊은잠), **R** (렘수면) 네 가지입니다.
 한 클래스만 답하는 기준선은 macro-F1 12.6%입니다.
 
 | F1, % | macro | W | LS | DS | R |
@@ -82,7 +83,7 @@ API 가 같은 함수를 부르므로, 조각 하나에서 뽑는 값이 두 경
 | 녹음 | 151개 |
 | 채널 | EEG Fpz-Cz, EEG Pz-Oz 두 개 |
 | 조각 | 30초, 193,285개 |
-| 클래스 | W 각성 33.9 / LS 얕은잠 46.2 / DS 깊은잠 6.7 / R 렘수면 13.2 % |
+| 클래스 | W (각성) 33.9 / LS (얕은잠) 46.2 / DS (깊은잠) 6.7 / R (렘수면) 13.2 % |
 
 ## 5. Running the Pipeline
 
@@ -95,8 +96,6 @@ uv pip install -e ".[boosting-full,tracking,analysis,serving,dev]"
 원본 데이터를 받는 방법은 [`data/README.md`](data/README.md) 에 있습니다.
 
 ### 5.1 Training
-
-실험과 배포 파일 만들기까지입니다. 전체를 처음부터 돌리면 반나절쯤 걸립니다.
 
 ```bash
 sleepstage prepare  --config configs/preprocess/base.yaml --jobs 8
@@ -122,7 +121,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 
 ### 5.2 Inference
 
-`artifacts/model-v1/` 에 있는 배포 파일을 그대로 씁니다.
+`artifacts/model-v1/` 에 있는 배포 파일을 씁니다.
 
 녹음 하나를 조각씩 흘려보내 실시간 판정을 재현합니다.
 
