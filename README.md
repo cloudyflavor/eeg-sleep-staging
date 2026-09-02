@@ -35,7 +35,8 @@
 
 ## Performance
 
-CatBoost, subject-wise 10-fold cross-validation 입니다. 한 클래스만 답하는 기준선은 macro-F1 12.6%입니다.
+CatBoost, subject-wise 10-fold cross-validation 입니다.
+한 클래스만 답하는 기준선은 macro-F1 12.6%입니다.
 
 | F1, % | macro | W | LS | DS | R |
 |---|---:|---:|---:|---:|---:|
@@ -43,7 +44,6 @@ CatBoost, subject-wise 10-fold cross-validation 입니다. 한 클래스만 답�
 | 논문 | 68.67 | 92.52 | 78.72 | 59.48 | 43.97 |
 | **개선** | **+16.42** | +0.44 | +8.58 | +20.65 | +36.01 |
 | 다수 클래스 기준선 | 12.6 | 50.4 | 0.0 | 0.0 | 0.0 |
-
 
 **깊은잠과 REM 에서 개선이 컸습니다.** 이 둘이 전체 조각의 20%뿐인 드문 클래스라
 클래스를 동등하게 보는 macro-F1 에서 비중이 큽니다.
@@ -110,7 +110,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 ```
 
 `<해시>` 는 `sleepstage feature-path --config configs/features/base.yaml` 이 알려줍니다.
-데이터를 받는 방법은 [`data/README.md`](data/README.md) 에 있습니다.
+
 ## Features
 
 | 무리 | 내용 |
@@ -119,7 +119,6 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 | 파형 | 진폭, 복잡도, 5초 조각별 최댓값과 최솟값 |
 | 사건 | 수면 방추 개수와 지속 시간 |
 | 문맥 | 앞뒤 3.5분 평균, 최근 2분 평균 |
-
 
 ### Feature Pruning
 
@@ -133,9 +132,8 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 **빨간 네모는 성격이 같은 열을 한 무리씩 통째로 뺀 것입니다.** 예를 들어 최근 2분
 평균에 해당하는 열 전부, 또는 평활하지 않은 원본 값 전부를 빼는 식입니다.
 
-
-505개에서 200개까지 줄이는 동안 파란 점이 거의 움직이지 않습니다. 묶음별로 짝지은 차이가
-0.08%p 이고 윌콕슨 p=0.557 이라, **열을 60% 줄여도 성능이 나빠졌다고 말할 수 없다고
+505개에서 200개까지 줄이는 동안 파란 점이 거의 움직이지 않습니다. 묶음별로 짝지은
+차이가 0.08%p 이고 윌콕슨 p=0.557 이라, **열을 60% 줄여도 성능이 나빠졌다고 말할 수 없다고
 판단했습니다.** 기기에서 돌릴 것을 생각해 200개를 최종 구성으로 정했습니다.
 
 ## Model
@@ -175,8 +173,8 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 
 **성능의 대부분은 모델이 아니라 신호와 문맥에서 나옵니다.** Fpz-Cz 채널을 빼고 Pz-Oz
 하나만 쓰면 5.6%p, 앞뒤 3.5분 문맥을 빼면 3.2%p 잃습니다. 부스팅을 선형 모델로
-바꾸는 것은 2.7%p 이고 대역 필터는 0.8%p 입니다. 이 결과를 보고 **모델을 더 손보는 것보다 무엇을 입력으로 줄지를 먼저
-정하는 편이 낫다고 판단했습니다.**
+바꾸는 것은 2.7%p 이고 대역 필터는 0.8%p 입니다. 이 결과를 보고 **모델을 더 손보는
+것보다 무엇을 입력으로 줄지를 먼저 정하는 편이 낫다고 판단했습니다.**
 
 ## Real-Time Design
 
