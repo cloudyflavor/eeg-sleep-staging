@@ -1,0 +1,31 @@
+# 최종 구성. 리드미가 보고하는 수치가 이 설정에서 나온다.
+#
+# base.yaml 은 축을 하나씩 비교하던 탐색 기준선이라 값이 다르다. 스윕 설정들이
+# 그 기준선에 기대고 있어서 그대로 두고, 고른 결과를 이 파일로 따로 뒀다.
+
+features:
+  epochs_dir: data/interim/epochs
+  out_dir: data/features
+
+  # 앞뒤를 함께 보는 필터. 인과 필터와 0.1%p 차이인데 그 시간은 지연 예산에 넣었다.
+  filter: zerophase
+
+  # 그 시점까지 쌓인 값만 쓴다. 밤 전체 평균을 쓰면 아직 오지 않은 시간이 새어 든다.
+  normalize: expanding
+
+  # 앞뒤 3.5분 평균과 최근 2분 평균. 문맥을 빼면 3.2%p 잃는다.
+  context: smooth
+
+  distance_features: true
+
+  # 5초 조각 여섯 개를 평균으로 합친다. 중앙값은 방추처럼 순간적인 신호도 깎는다.
+  welch_average: mean
+
+  # 조각별 최댓값과 최솟값. 합치는 순간 사라지는 변화를 붙잡는다.
+  window_extremes: true
+
+  # 수면방추를 사건으로 세어 개수와 지속시간을 남긴다.
+  spindle_events: true
+
+  # 두 채널의 파형이 대역마다 얼마나 닮았는지. 세기 비율만으로는 서파와 안구운동이 안 갈린다.
+  channel_correlation: true

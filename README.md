@@ -82,7 +82,7 @@ artifacts/     배포용 모델과 열 순서
 | 녹음 | 151개 |
 | 채널 | EEG Fpz-Cz, EEG Pz-Oz 두 개 |
 | 조각 | 30초, 193,285개 |
-| 클래스 | W 33.9 / LS 46.2 / DS 6.7 / R 13.2 % |
+| 클래스 | W 각성 33.9 / LS 얕은잠 46.2 / DS 깊은잠 6.7 / R 렘수면 13.2 % |
 
 ## Reproduction
 
@@ -93,7 +93,7 @@ uv pip install -e ".[boosting-full,tracking,analysis,dev]"
 
 sleepstage prepare  --config configs/preprocess/base.yaml --jobs 8
 sleepstage quality  --config configs/quality.yaml
-sleepstage features --config configs/features/base.yaml --jobs 8
+sleepstage features --config configs/features/final.yaml --jobs 8
 sleepstage split    --features data/features/<해시>.parquet \
                     --out data/splits/subject_10fold.json
 sleepstage train    --config configs/experiment/base.yaml \
@@ -109,7 +109,8 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
     --transitions runs/improve/<실행>/transitions.json
 ```
 
-`<해시>` 는 `sleepstage feature-path --config configs/features/base.yaml` 이 알려줍니다.
+`<해시>` 는 `sleepstage feature-path --config configs/features/final.yaml` 이 알려줍니다.
+`configs/features/base.yaml` 은 축을 하나씩 비교하던 탐색 기준선이라 값이 다릅니다.
 
 ## Features
 
