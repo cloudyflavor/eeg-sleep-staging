@@ -23,3 +23,8 @@ htmlcov/
 
 # catboost 학습 로그
 catboost_info/
+
+# 도식 그리는 코드는 저장소에 두지 않는다. 결과 그림만 assets 에 올린다
+scripts/_diagram.py
+scripts/draw_architecture.py
+scripts/draw_model_architecture.py
