@@ -24,5 +24,8 @@ train:
   # 부스팅이 쓸 코어 수. 비우면 코드의 기본값을 쓴다.
   # 실험을 동시에 돌릴 때 나눠 준다. 결과는 이 값과 무관하다.
   threads: null
+  # 품질 검사가 배제한 녹음을 학습과 평가에서 뺀다. 비우면 아무것도 안 뺀다.
+  # sleepstage quality 가 만든 보고서를 가리킨다.
+  quality_report: null
   out_dir: runs
   mlflow: true

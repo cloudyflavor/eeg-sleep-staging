@@ -117,6 +117,10 @@ RESULT_DEFAULTS = {"subject_info": "none", "age_weight": False, "feature_select"
 def run_id(features_stem: str, train_params: dict) -> str:
     """실행을 구분하는 짧은 문자열. 결과를 정하는 것만 들어간다."""
     used = {k: train_params.get(k, RESULT_DEFAULTS.get(k)) for k in RESULT_KEYS}
+    # 품질 배제는 켰을 때만 이름에 넣는다. RESULT_KEYS 에 그냥 더하면 값이 기본이어도
+    # 해시에 키가 하나 늘어 지금까지의 실행 이름이 전부 달라지고 결과를 다시 못 찾는다.
+    if train_params.get("quality_report"):
+        used["quality_report"] = train_params["quality_report"]
     return config_hash({"features": features_stem, "train": used})
 
 
@@ -270,7 +274,11 @@ def run_cv(cfg: Config, overwrite: bool = False) -> dict[str, Any]:
         print(f"건너뜀 — 같은 설정의 실행이 이미 있습니다: {out_dir}", flush=True)
         return {"run_id": rid, "out_dir": str(out_dir), **json.loads(done.read_text())}
 
-    table, load_info = load_table(features_path, p["drop_missing"])
+    from sleepstage.experiment.pipeline.quality import load_excluded
+
+    table, load_info = load_table(
+        features_path, p["drop_missing"], load_excluded(p.get("quality_report"))
+    )
     folds = load_folds(p["splits"])
     subset = p.get("feature_subset", "all")
     if subset not in SUBSETS:

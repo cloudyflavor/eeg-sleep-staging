@@ -174,3 +174,16 @@ def test_crop_bounds_are_positions_not_epoch_numbers(tmp_path):
     assert out["n_epochs"] == 5
     assert out["flat_fraction"][1] == 1.0
     # 번호로 잘랐다면 5 이상 10 미만인 번호가 없어 조각이 0개가 되고 nan 이 됐을 것이다
+
+
+def test_run_id_is_unchanged_when_quality_is_off():
+    """품질 배제를 이름에 무조건 넣으면 지금까지의 실행을 이름으로 못 찾는다.
+
+    다시 찾지 못하면 건너뛰기가 안 걸려 서른 건이 통째로 다시 학습된다.
+    """
+    from sleepstage.experiment.modeling.cross_validate import run_id
+
+    base = {"splits": "s.json", "model": "catboost", "class_weight": "balanced", "seed": 0}
+    assert run_id("f", base) == run_id("f", {**base, "quality_report": None})
+    assert run_id("f", base) == run_id("f", {**base, "quality_report": ""})
+    assert run_id("f", base) != run_id("f", {**base, "quality_report": "q.json"})
