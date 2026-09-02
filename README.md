@@ -49,7 +49,23 @@ CatBoost, subject-wise 10-fold cross-validation 입니다.
 **깊은잠과 REM 에서 개선이 컸습니다.** 이 둘이 전체 조각의 20%뿐인 드문 클래스라
 클래스를 동등하게 보는 macro-F1 에서 비중이 큽니다.
 
-## 3. Running the Pipeline
+## 3. Repository Structure
+
+```
+src/sleepstage/
+  core/        신호 처리와 특징 계산
+  experiment/  전처리, 품질 검사, 교차검증, 특징 선택, 후처리
+  serving/     실시간 추론 API 와 조각 단위 스트리밍
+configs/       전처리, 특징, 학습, 품질 검사 설정
+scripts/       실행 기록에서 표와 그림을 만드는 도구
+tests/         실행해도 오류가 안 나는 종류의 버그를 고정하는 시험
+artifacts/     배포용 모델과 열 순서
+```
+
+**특징을 계산하는 함수는 `src/sleepstage/core/` 에만 있습니다.** 학습 파이프라인과 실시간
+API 가 같은 함수를 부르므로, 조각 하나에서 뽑는 값이 두 경로에서 같습니다.
+
+## 4. Running the Pipeline
 
 Python 3.12, numpy 2.5, scipy 1.18, mne 1.12, scikit-learn 1.9, CatBoost 1.2.10.
 
@@ -59,7 +75,7 @@ uv pip install -e ".[boosting-full,tracking,analysis,serving,dev]"
 
 원본 데이터를 받는 방법은 [`data/README.md`](data/README.md) 에 있습니다.
 
-### 3.1 Training
+### 4.1 Training
 
 ```bash
 sleepstage prepare  --config configs/preprocess/base.yaml --jobs 8
@@ -83,7 +99,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 `<해시>` 는 `sleepstage feature-path --config configs/features/final.yaml` 이 알려 줍니다.
 `configs/features/base.yaml` 은 축을 하나씩 비교하던 탐색 기준선이라 값이 다릅니다.
 
-### 3.2 Inference
+### 4.2 Inference
 
 `artifacts/model-v1/` 에 있는 배포 파일을 씁니다.
 
@@ -114,7 +130,7 @@ sleepstage serve --artifact artifacts/model-v1 --port 8000
 docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 ```
 
-## 4. Data
+## 5. Data
 
 **Sleep-EDF Expanded 1.0.0 의 Sleep Cassette** 부분입니다. 집에서 24시간 연속으로 잰
 건강한 성인의 수면다원검사이고
@@ -134,15 +150,15 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 | 조각 | 30초, 193,285개 |
 | 클래스 | W (각성) 33.9 / LS (얕은잠) 46.2 / DS (깊은잠) 6.7 / R (렘수면) 13.2 % |
 
-## 5. Real-Time Design
+## 6. Real-Time Design
 
-### 5.1 Why It Has to Run During Sleep
+### 6.1 Why It Has to Run During Sleep
 
 수면 중 개입은 특정 단계에서만 효과가 있습니다. 서파에 맞춘 청각 자극은 깊은잠에서만,
 악몽 장애 기기와 렘수면 행동장애 감시는 렘수면에서만 성립합니다. 아침에 나오는 판정으로는
 이런 개입을 할 수 없습니다.
 
-### 5.2 What the Delay Is
+### 6.2 What the Delay Is
 
 모델에 넣는 값 중에는 계산하려면 판정할 조각보다 **뒤에 올 신호**가 필요한 것이
 있습니다. 앞뒤 3.5분의 평균을 내는 값이 그렇습니다. 그 값을 쓰려면 뒤쪽 조각이 들어올
@@ -152,7 +168,7 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 30초이므로 **4.5분**입니다. **필터가 무는 시간을 지연에 포함시켰고, 이것이 빠지지 않도록
 테스트로 고정했습니다.** 창의 절반만 세면 실제보다 짧게 보고하게 됩니다.
 
-### 5.3 Why 4.5 Minutes
+### 6.3 Why 4.5 Minutes
 
 기다리는 시간을 줄이면 뒤를 보는 값을 못 씁니다. 얼마를 잃는지 보려고 **값마다 필요한
 미래 시간을 기록해 두고, 미래를 아예 보지 않는 값만으로 다시 학습해** 비교했습니다.
@@ -164,7 +180,7 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 **렘수면을 겨냥한 개입이 목표라서 4.5분을 기다리는 쪽을 골랐습니다.** 각성과 얕은잠만
 구분하면 되는 응용이라면 기다리는 시간을 1분으로 줄이는 편이 낫다고 판단했습니다.
 
-## 6. Features
+## 7. Features
 
 핵심 변수는 다음과 같습니다.
 
@@ -175,7 +191,7 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 | 사건 | 수면 방추 개수와 지속 시간 |
 | 문맥 | 앞뒤 3.5분 평균, 최근 2분 평균 |
 
-### 6.1 Feature Pruning
+### 7.1 Feature Pruning
 
 ![특징 가지치기](assets/pruning.png)
 
@@ -191,7 +207,7 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 차이가 0.08%p 이고 윌콕슨 p=0.557 이라, **열을 60% 줄여도 성능이 나빠졌다고 말할 수 없다고
 판단했습니다.** 기기에서 돌릴 것을 생각해 200개를 최종 구성으로 정했습니다.
 
-## 7. Model
+## 8. Model
 
 모델을 고르는 실험이라 전처리와 특징을 한 조건으로 고정하고 모델만 바꿨습니다.
 0.4에서 30 Hz 대역 필터, 과거만 보는 정규화, 앞뒤 3.5분 평균 문맥, 289개 열입니다.
@@ -222,7 +238,7 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
    기준으로 갈라지는 대칭 트리를 쓰는데, 이 구조가 규제처럼 작용해 닮은 열이 많을 때
    과적합이 덜한 것으로 알려져 있습니다.
 
-## 8. Evaluation
+## 9. Evaluation
 
 ![축별 기여](assets/contribution.png)
 
@@ -230,20 +246,4 @@ docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
 하나만 쓰면 5.6%p, 앞뒤 3.5분 문맥을 빼면 3.2%p 잃습니다. 부스팅을 선형 모델로
 바꾸는 것은 2.7%p 이고 대역 필터는 0.8%p 입니다. 이 결과를 보고 **모델을 더 손보는
 것보다 무엇을 입력으로 줄지를 먼저 정하는 편이 낫다고 판단했습니다.**
-
-## 9. Repository Structure
-
-```
-src/sleepstage/
-  core/        신호 처리와 특징 계산
-  experiment/  전처리, 품질 검사, 교차검증, 특징 선택, 후처리
-  serving/     실시간 추론 API 와 조각 단위 스트리밍
-configs/       전처리, 특징, 학습, 품질 검사 설정
-scripts/       실행 기록에서 표와 그림을 만드는 도구
-tests/         실행해도 오류가 안 나는 종류의 버그를 고정하는 시험
-artifacts/     배포용 모델과 열 순서
-```
-
-**특징을 계산하는 함수는 `src/sleepstage/core/` 에만 있습니다.** 학습 파이프라인과 실시간
-API 가 같은 함수를 부르므로, 조각 하나에서 뽑는 값이 두 경로에서 같습니다.
 
