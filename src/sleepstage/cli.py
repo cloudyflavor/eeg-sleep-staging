@@ -242,6 +242,37 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_quality(args: argparse.Namespace) -> int:
+    """에포크 npz 를 훑어 녹음별 품질 보고서를 만든다. 지우지는 않는다."""
+    from sleepstage.experiment.pipeline.quality import format_report, scan, write_report
+
+    cfg = Config.load(args.config).override(args.set or [])
+    params = dict(cfg["quality"])
+    epochs_dir = args.epochs or cfg["epochs_dir"]
+    report = scan(epochs_dir, params, params.get("use_crop", True), args.limit)
+    print(format_report(report))
+    if not args.dry_run:
+        print(f"저장 {write_report(report, epochs_dir)}")
+    return 0
+
+
+def _cmd_rescore(args: argparse.Namespace) -> int:
+    """저장된 예측에서 배제 녹음을 빼고 다시 채점한다. 학습은 다시 하지 않는다."""
+    from pathlib import Path
+
+    from sleepstage.experiment.pipeline.quality import REPORT_NAME, load_excluded
+    from sleepstage.experiment.rescore import format_result, rescore, write
+
+    report = args.report
+    if not report:
+        cfg = Config.load(args.config)
+        report = Path(cfg["epochs_dir"]) / REPORT_NAME
+    result = rescore(args.run, load_excluded(report))
+    print(format_result(result))
+    print(f"저장 {write(result, args.run)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sleepstage", description=__doc__)
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -346,6 +377,20 @@ def build_parser() -> argparse.ArgumentParser:
     p13.add_argument("--jobs", type=int, default=8, help="특징 표를 만들 때 쓸 프로세스 수")
     p13.add_argument("--dry-run", action="store_true", help="무엇을 돌릴지만 출력")
     p13.set_defaults(func=_cmd_sweep)
+
+    p14 = sub.add_parser("quality", help="녹음 단위 신호 품질 검사")
+    p14.add_argument("--config", default="configs/quality.yaml")
+    p14.add_argument("--epochs", help="설정의 epochs_dir 을 덮어씀")
+    p14.add_argument("--limit", type=int, help="앞에서 N개만 (시험 실행용)")
+    p14.add_argument("--set", nargs="*", help="quality.flat_uv=15 처럼 값을 덮어씀")
+    p14.add_argument("--dry-run", action="store_true", help="보고서를 저장하지 않음")
+    p14.set_defaults(func=_cmd_quality)
+
+    p15 = sub.add_parser("rescore", help="배제 녹음을 빼고 저장된 예측을 다시 채점")
+    p15.add_argument("--run", required=True, help="실행 폴더")
+    p15.add_argument("--config", default="configs/quality.yaml")
+    p15.add_argument("--report", help="품질 보고서 경로. 비우면 설정의 epochs_dir 에서 찾음")
+    p15.set_defaults(func=_cmd_rescore)
 
     return p
 

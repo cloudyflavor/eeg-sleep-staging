@@ -186,13 +186,28 @@ def feature_settings(features_path: Path) -> dict:
     return json.loads(side.read_text(encoding="utf-8"))["settings"]
 
 
-def load_table(features_path: Path, drop_missing: bool) -> tuple[pd.DataFrame, dict[str, Any]]:
+def load_table(
+    features_path: Path,
+    drop_missing: bool,
+    excluded: set[tuple[str, int]] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """특징 표를 읽는다. ``excluded`` 를 주면 그 녹음의 행을 학습 전에 뺀다.
+
+    아직 설정에 연결하지 않았다. 연결하려면 RESULT_KEYS 에 키를 더해야 하는데,
+    그 순간 실행 이름이 전부 새로 계산되어 지금까지의 결과가 통째로 다시 돌아간다.
+    임계값이 정해진 뒤에 한 번에 하는 편이 싸다.
+    """
+    from sleepstage.experiment.pipeline.quality import drop_excluded
+
     table = pd.read_parquet(features_path)
     info = {"n_rows": len(table), "n_dropped_missing": 0}
     if drop_missing:
         keep = table.notna().all(axis=1)
         info["n_dropped_missing"] = int((~keep).sum())
         table = table[keep].reset_index(drop=True)
+    if excluded:
+        table, dropped = drop_excluded(table, excluded)
+        info.update(dropped)
     return table, info
 
 
