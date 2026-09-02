@@ -26,7 +26,8 @@
 
 서빙은 그 모델 파일을 읽는 것으로 시작합니다. API 가 기기에서 30초마다 올라오는
 조각을 하나씩 받아 학습과 같은 특징 계산을 돌리고, 정규화한 뒤 수면 단계를 냅니다.
-판정은 조각마다, 특징 표는 세션이 끝날 때 저장됩니다.
+**답을 내기 전에 단계 전이 후처리를 겁니다.** 지금까지 지나온 흐름만 보므로 판정이
+더 밀리지 않습니다. 판정은 조각마다, 특징 표는 세션이 끝날 때 저장됩니다.
 
 **두 줄을 잇는 점선은 특징 계산 코드를 공유한다는 표시입니다.** 학습에서 쓴 계산과
 서빙에서 쓴 계산이 갈라지면 오류 없이 성능만 떨어지기 때문에, 구현을 하나로 두어
@@ -104,7 +105,8 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
     --set train.features=data/features/<해시>.parquet \
     --set train.feature_select=top:200 \
     --set train.quality_report=data/interim/epochs/quality.json \
-    --metrics runs/improve/<실행>/metrics.json
+    --metrics runs/improve/<실행>/metrics.json \
+    --transitions runs/improve/<실행>/transitions.json
 ```
 
 `<해시>` 는 `sleepstage feature-path --config configs/features/base.yaml` 이 알려줍니다.

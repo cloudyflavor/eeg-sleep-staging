@@ -163,6 +163,8 @@ class SessionStore:
                     "index": stager.index,
                     "buffer": list(stager.buffer),
                     "stats": stager.stats.history,
+                    # 이것을 빼먹으면 세션을 이어받은 뒤 흐름이 처음부터 다시 시작한다
+                    "decoder": stager.decoder.state() if stager.decoder else None,
                 },
                 ensure_ascii=False,
             ),
@@ -179,6 +181,8 @@ class SessionStore:
         stager.buffer.clear()
         stager.buffer.extend(state["buffer"])
         stager.stats.history = state["stats"]
+        if stager.decoder is not None:
+            stager.decoder.load(state.get("decoder"))
         if arrays.exists():
             raw = np.load(arrays)["raw"]
             stager.raw_buffer.clear()

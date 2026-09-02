@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sleepstage.core import context, events, filters, normalize
+from sleepstage.core import context, events, filters, normalize, transitions
 from sleepstage.experiment.pipeline.features import epoch_features
 
 #: 필터를 걸 때 앞뒤로 함께 넣는 조각 수. 신호가 갑자기 시작하거나 끝나는 데서
@@ -122,6 +122,11 @@ class StreamingStager:
         self.buffer: deque[dict[str, float]] = deque(
             maxlen=self.window + self.history_needed if self.uses_center else 1
         )
+        # 전이 후처리. 배포 파일에 표가 없으면 모델 답을 그대로 쓴다.
+        block = config.get("transitions")
+        self.decoder = (
+            transitions.PastOnlyDecoder(block["log_prob"], block["weight"]) if block else None
+        )
         self.last_row: np.ndarray | None = None  # 방금 판정에 쓴 특징 한 줄
         self.index = 0  # 특징 계산이 끝난 조각 수
         self.received = 0  # 들어온 조각 수, 필터 여유분만큼 앞선다
@@ -221,7 +226,8 @@ class StreamingStager:
         row = self._build_row(epoch_idx, offset)
         self.last_row = row
         proba = self._predict(row)
-        best = int(np.argmax(proba))
+        # 후처리는 과거만 보므로 지연이 늘지 않는다. 조각은 순서대로 한 번씩만 온다.
+        best = self.decoder.step(proba) if self.decoder else int(np.argmax(proba))
         return {
             "epoch_idx": epoch_idx,
             "stage": self.stage_names[best],

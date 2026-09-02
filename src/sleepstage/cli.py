@@ -140,7 +140,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
     from sleepstage.serving.export import export
 
     cfg = Config.load(args.config).override(args.set or [])
-    r = export(cfg, args.out, args.version, args.metrics)
+    r = export(cfg, args.out, args.version, args.metrics, args.transitions)
     print(f"\n저장 {r['out_dir']}  특징 {r['n_features']}개")
     for name, mb in sorted(r["files_mb"].items()):
         print(f"  {name:22} {mb:>7.2f} MB")
@@ -339,6 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     p9.add_argument("--out", required=True, help="아티팩트 디렉터리")
     p9.add_argument("--version", default="v1")
     p9.add_argument("--metrics", help="card 에 넣을 metrics.json 경로")
+    p9.add_argument("--transitions", help="후처리 표를 만들 transitions.json 경로")
     p9.add_argument("--set", action="append", metavar="키=값")
     p9.set_defaults(func=_cmd_export)
 

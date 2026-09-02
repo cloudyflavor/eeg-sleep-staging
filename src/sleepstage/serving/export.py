@@ -28,6 +28,7 @@ from sleepstage.experiment.modeling.cross_validate import (
     load_table,
     make_model,
 )
+from sleepstage.experiment.modeling.stage_transitions import RECORDING, transition_log_prob
 from sleepstage.experiment.pipeline.folds import STAGE_NAMES
 
 #: 모델 종류별 저장 파일 이름
@@ -75,11 +76,30 @@ def _git_commit() -> str | None:
         return None
 
 
+def transition_block(table, path: str | Path | None) -> dict | None:
+    """학습에 쓴 라벨로 전이 표를 만들고 세기를 정한다.
+
+    세기는 교차검증이 묶음마다 나머지 묶음 안에서 고른 값 중 가장 많이 나온 것을 쓴다.
+    여기서 다시 고르면 학습에 쓴 라벨을 보고 고르는 것이 되어 낙관적으로 부풀려진다.
+    """
+    if not path:
+        return None
+    chosen = json.loads(Path(path).read_text(encoding="utf-8"))["weights"]
+    weights = [float(v) for v in chosen.values()]
+    ordered = table.sort_values([*RECORDING, "epoch_idx"])
+    labels = [g["stage"].to_numpy() for _, g in ordered.groupby(RECORDING, sort=False)]
+    return {
+        "weight": max(set(weights), key=weights.count),
+        "log_prob": transition_log_prob(labels).tolist(),
+    }
+
+
 def export(
     cfg: Config,
     out_dir: str | Path,
     version: str,
     metrics_json: str | None = None,
+    transitions_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """전체 데이터로 학습하고 서비스에 필요한 파일들을 저장한다.
 
@@ -155,6 +175,7 @@ def export(
                 "channels": feature_manifest["channels"],
                 "stage_names": list(STAGE_NAMES),
                 "model_type": p["model"],
+                "transitions": transition_block(table, transitions_json),
                 "model_file": model_file,
                 "class_weight": p["class_weight"],
                 "seed": p["seed"],
@@ -189,6 +210,10 @@ def export(
             "protocol": "subject-wise 10-fold CV",
             **{k: round(v, 4) for k, v in m.items()},
         }
+        # 서빙은 전이 후처리를 걸고 답한다. 모델 단독 값만 적으면 기기가 내는 값과 다르다.
+        if transitions_json:
+            after = json.loads(Path(transitions_json).read_text())["after"]
+            card["performance"]["macro_f1_with_transitions"] = round(after["macro_f1"], 4)
     (out_dir / "card.json").write_text(
         json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8"
     )
