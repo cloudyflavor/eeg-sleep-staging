@@ -5,16 +5,16 @@
 [Machine Learning-Based Sleep Stage Classification Model Using Single-Channel EEG](https://www.e-jat.org/journal/view.php?doi=10.37675/jat.2025.00647)
 를 고도화하는 파이프라인입니다.
 
-논문은 뇌파 한 채널과 XGBoost 로 수면 단계를 4단계로 분류했습니다. **같은 데이터셋과
-같은 4단계 문제를 유지하면서** 세 가지를 개선했습니다.
+해당 논문은 EEG Fpz-Cz 한 채널과 XGBoost 로 수면 단계를 4단계로 분류했습니다.
+**같은 데이터셋과 같은 4단계 문제를 유지하면서** 세 가지를 개선했습니다.
 
 | | 기존 논문 | 이번 작업 |
 |---|---|---|
-| **분류 성능** | macro-F1 68.67%, REM 43.97% | macro-F1 85.09%, REM 79.98%. 각각 16.42%p 와 36.01%p 개선 |
-| **판정 시점** | 녹음 종료 후 일괄 판정 | 수면 중 4.5분 지연 판정. 열마다 필요한 대기 시간을 기록 |
-| **입력과 계산량** | 뇌파 한 채널 | 뇌파 두 채널. 특징을 505개에서 200개로 축소 |
+| **분류 성능** | macro-F1 68.67%, REM 43.97% | macro-F1 85.09%, REM 79.98% |
+| **판정 시점** | 녹음 종료 후 일괄 판정 | 수면 중 4.5분 지연 판정 |
+| **입력 채널** | EEG Fpz-Cz | EEG Fpz-Cz, Pz-Oz |
 
-## System Architecture
+## 1. System Architecture
 
 ![시스템 아키텍처](assets/architecture.png)
 
@@ -33,7 +33,7 @@
 서빙에서 쓴 계산이 갈라지면 오류 없이 성능만 떨어지기 때문에, 구현을 하나로 두어
 그 상황이 생기지 않게 했습니다.
 
-## Performance
+## 2. Performance
 
 CatBoost, subject-wise 10-fold cross-validation 입니다.
 한 클래스만 답하는 기준선은 macro-F1 12.6%입니다.
@@ -48,7 +48,7 @@ CatBoost, subject-wise 10-fold cross-validation 입니다.
 **깊은잠과 REM 에서 개선이 컸습니다.** 이 둘이 전체 조각의 20%뿐인 드문 클래스라
 클래스를 동등하게 보는 macro-F1 에서 비중이 큽니다.
 
-## Repository Structure
+## 3. Repository Structure
 
 ```
 src/sleepstage/
@@ -61,10 +61,10 @@ tests/         실행해도 오류가 안 나는 종류의 버그를 고정하�
 artifacts/     배포용 모델과 열 순서
 ```
 
-**특징을 계산하는 코드는 `src/sleepstage/core/` 에 있고 학습과 서빙이 둘 다 불러
-계산합니다.**
+**특징을 계산하는 함수는 `src/sleepstage/core/` 에만 있습니다.** 학습 파이프라인과 실시간
+API 가 같은 함수를 부르므로, 조각 하나에서 뽑는 값이 두 경로에서 같습니다.
 
-## Data
+## 4. Data
 
 **Sleep-EDF Expanded 1.0.0 의 Sleep Cassette** 부분입니다. 집에서 24시간 연속으로 잰
 건강한 성인의 수면다원검사이고
@@ -84,13 +84,21 @@ artifacts/     배포용 모델과 열 순서
 | 조각 | 30초, 193,285개 |
 | 클래스 | W 각성 33.9 / LS 얕은잠 46.2 / DS 깊은잠 6.7 / R 렘수면 13.2 % |
 
-## Reproduction
+## 5. Running the Pipeline
 
 Python 3.12, numpy 2.5, scipy 1.18, mne 1.12, scikit-learn 1.9, CatBoost 1.2.10.
 
 ```bash
-uv pip install -e ".[boosting-full,tracking,analysis,dev]"
+uv pip install -e ".[boosting-full,tracking,analysis,serving,dev]"
+```
 
+원본 데이터를 받는 방법은 [`data/README.md`](data/README.md) 에 있습니다.
+
+### 5.1 Training
+
+실험과 배포 파일 만들기까지입니다. 전체를 처음부터 돌리면 반나절쯤 걸립니다.
+
+```bash
 sleepstage prepare  --config configs/preprocess/base.yaml --jobs 8
 sleepstage quality  --config configs/quality.yaml
 sleepstage features --config configs/features/final.yaml --jobs 8
@@ -109,10 +117,43 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
     --transitions runs/improve/<실행>/transitions.json
 ```
 
-`<해시>` 는 `sleepstage feature-path --config configs/features/final.yaml` 이 알려줍니다.
+`<해시>` 는 `sleepstage feature-path --config configs/features/final.yaml` 이 알려 줍니다.
 `configs/features/base.yaml` 은 축을 하나씩 비교하던 탐색 기준선이라 값이 다릅니다.
 
-## Features
+### 5.2 Inference
+
+`artifacts/model-v1/` 에 있는 배포 파일을 그대로 씁니다.
+
+녹음 하나를 조각씩 흘려보내 실시간 판정을 재현합니다.
+
+```bash
+sleepstage replay --artifact artifacts/model-v1 \
+                  --npz data/interim/epochs/SC400N1.npz --limit 200
+```
+
+기기가 붙을 HTTP 창구를 띄웁니다.
+
+```bash
+sleepstage serve --artifact artifacts/model-v1 --port 8000
+```
+
+| 경로 | 하는 일 |
+|---|---|
+| `GET /health` | 살아 있는지와 모델 판 번호 |
+| `POST /sessions/{id}` | 기기 세션 열기 |
+| `POST /sessions/{id}/epochs` | 조각 하나 넣고 판정 받기 |
+| `GET /sessions/{id}/predictions` | 그 세션의 판정 모아 보기 |
+| `DELETE /sessions/{id}` | 세션 닫고 특징 표 저장 |
+
+컨테이너로 띄우려면 `Dockerfile` 이 배포 파일까지 이미지에 담습니다.
+
+```bash
+docker build -t sleepstage . && docker run -p 8000:8000 sleepstage
+```
+
+## 6. Features
+
+핵심 변수는 다음과 같습니다.
 
 | 무리 | 내용 |
 |---|---|
@@ -121,7 +162,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 | 사건 | 수면 방추 개수와 지속 시간 |
 | 문맥 | 앞뒤 3.5분 평균, 최근 2분 평균 |
 
-### Feature Pruning
+### 6.1 Feature Pruning
 
 ![특징 가지치기](assets/pruning.png)
 
@@ -137,7 +178,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 차이가 0.08%p 이고 윌콕슨 p=0.557 이라, **열을 60% 줄여도 성능이 나빠졌다고 말할 수 없다고
 판단했습니다.** 기기에서 돌릴 것을 생각해 200개를 최종 구성으로 정했습니다.
 
-## Model
+## 7. Model
 
 모델을 고르는 실험이라 전처리와 특징을 한 조건으로 고정하고 모델만 바꿨습니다.
 0.4에서 30 Hz 대역 필터, 과거만 보는 정규화, 앞뒤 3.5분 평균 문맥, 289개 열입니다.
@@ -168,7 +209,7 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
    기준으로 갈라지는 대칭 트리를 쓰는데, 이 구조가 규제처럼 작용해 닮은 열이 많을 때
    과적합이 덜한 것으로 알려져 있습니다.
 
-## Evaluation
+## 8. Evaluation
 
 ![축별 기여](assets/contribution.png)
 
@@ -177,21 +218,32 @@ sleepstage export   --config configs/experiment/base.yaml --out artifacts/model-
 바꾸는 것은 2.7%p 이고 대역 필터는 0.8%p 입니다. 이 결과를 보고 **모델을 더 손보는
 것보다 무엇을 입력으로 줄지를 먼저 정하는 편이 낫다고 판단했습니다.**
 
-## Real-Time Design
+## 9. Real-Time Design
 
-### Why It Has to Run During Sleep
+### 9.1 Why It Has to Run During Sleep
 
 수면 중 개입은 특정 단계에서만 효과가 있습니다. 서파에 맞춘 청각 자극은 깊은잠에서만,
-악몽 장애 기기와 렘수면 행동장애 감시는 REM 에서만 성립합니다. 아침에 나오는 판정으로는
+악몽 장애 기기와 렘수면 행동장애 감시는 렘수면에서만 성립합니다. 아침에 나오는 판정으로는
 이런 개입을 할 수 없습니다.
 
-**지연을 4.5분까지 늘리는 근거는 주로 REM 입니다.** 미래를 아예 보지 않게 하면 W 는
-오히려 0.03%p 좋아지고 DS 는 0.28%p 나빠지는데, R 은 2.24%p 떨어집니다. 각성과
-깊은잠은 그 30초 안에 증거가 대부분 들어 있는 반면, REM 은 앞뒤를 봐야 얕은잠과
-갈리기 때문입니다.
+### 9.2 What the Delay Is
 
-### Where the 4.5 Minutes Comes From
+어떤 특징은 계산하려면 판정할 조각보다 **뒤에 올 신호**가 필요합니다. 앞뒤 3.5분을 평균
+내는 값이 그렇습니다. 그 값을 쓰려면 뒤쪽 조각이 들어올 때까지 기다렸다가 답해야 하고,
+그 기다리는 시간이 곧 판정이 늦게 나오는 시간입니다.
 
-필터가 무는 앞뒤 2조각과 맥락 창의 미래 절반 7조각을 더한 값입니다. 조각이 30초이므로
-9조각이 4.5분입니다. **보고하는 지연에 필터가 무는 시간을 포함시켰고, 이것이 빠지지
-않도록 테스트로 고정했습니다.**
+필터가 앞뒤로 무는 2조각과 맥락 창의 미래 절반 7조각을 더하면 9조각입니다. 조각이
+30초이므로 **4.5분**입니다. **필터가 무는 시간을 지연에 포함시켰고, 이것이 빠지지 않도록
+테스트로 고정했습니다.** 창의 절반만 세면 실제보다 짧게 보고하게 됩니다.
+
+### 9.3 Why 4.5 Minutes and Not Zero
+
+기다리는 시간을 줄이면 뒤를 보는 특징을 못 씁니다. 얼마를 잃는지 보려고 **열마다 필요한
+미래 시간을 기록해 두고, 미래를 아예 보지 않는 열만으로 다시 학습해** 비교했습니다.
+
+각성은 오히려 0.03%p 좋아지고 깊은잠은 0.28%p 나빠지는 데 그쳤는데, **렘수면만 2.24%p
+떨어졌습니다.** 각성과 깊은잠은 그 30초 안에 증거가 대부분 들어 있는 반면, 렘수면은
+앞뒤를 봐야 얕은잠과 갈리기 때문입니다.
+
+**렘수면을 겨냥한 개입이 목표라서 4.5분을 기다리는 쪽을 골랐습니다.** 각성과 얕은잠만
+구분하면 되는 응용이라면 기다리는 시간을 1분으로 줄이는 편이 낫다고 판단했습니다.
