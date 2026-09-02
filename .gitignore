@@ -5,7 +5,8 @@ __pycache__/
 *.egg-info/
 
 # 데이터·산출물 (서버에 있거나 재생성 가능)
-data/
+data/*
+!data/README.md
 runs/
 mlruns/
 mlflow.db

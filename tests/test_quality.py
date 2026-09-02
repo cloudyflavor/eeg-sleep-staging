@@ -187,3 +187,18 @@ def test_run_id_is_unchanged_when_quality_is_off():
     assert run_id("f", base) == run_id("f", {**base, "quality_report": None})
     assert run_id("f", base) == run_id("f", {**base, "quality_report": ""})
     assert run_id("f", base) != run_id("f", {**base, "quality_report": "q.json"})
+
+
+def test_export_and_training_read_the_same_table():
+    """배포 학습이 품질 배제를 빠뜨리면 실험과 다른 데이터로 모델이 만들어진다.
+
+    두 곳 다 load_table 에 배제 목록을 넘기는지 호출 모양으로 확인한다.
+    """
+    import inspect
+
+    from sleepstage.experiment.modeling import cross_validate
+    from sleepstage.serving import export
+
+    for mod in (cross_validate.run_cv, export.export):
+        src = inspect.getsource(mod)
+        assert "load_excluded" in src, f"{mod.__qualname__} 가 배제 목록을 안 읽습니다"

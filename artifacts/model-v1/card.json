@@ -3,9 +3,9 @@
   "trained_on": {
     "dataset": "Sleep-EDF Expanded, Sleep-Cassette",
     "subjects": 78,
-    "recordings": 153,
-    "epochs": 195441,
-    "dropped_missing_rows": 38
+    "recordings": 151,
+    "epochs": 193285,
+    "dropped_missing_rows": 0
   },
   "environment": {
     "python": "3.12.12",
@@ -19,7 +19,7 @@
     "mne": "1.12.1",
     "antropy": "0.2.2"
   },
-  "git_commit": "f73f1fb7ad4d7f40520afce75c007eb27c222668",
+  "git_commit": "551e918e012e797e96bb57041c30e2b40d989768",
   "limitations": [
     "건강한 성인 코호트로만 학습했다, 수면장애 환자에서는 검증되지 않았다",
     "4-class 로 N1 과 N2 를 합쳤다, 5-class 문헌과 직접 비교할 수 없다",
@@ -28,12 +28,12 @@
   ],
   "performance": {
     "protocol": "subject-wise 10-fold CV",
-    "macro_f1": 0.8381,
-    "accuracy": 0.8662,
-    "kappa": 0.7977,
-    "f1_W": 0.9251,
-    "f1_LS": 0.8616,
-    "f1_DS": 0.7874,
-    "f1_R": 0.7782
+    "macro_f1": 0.8477,
+    "accuracy": 0.8746,
+    "kappa": 0.8101,
+    "f1_W": 0.9298,
+    "f1_LS": 0.8694,
+    "f1_DS": 0.7942,
+    "f1_R": 0.7974
   }
 }

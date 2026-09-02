@@ -92,7 +92,13 @@ def export(
 
     # 실험과 같은 방식으로 읽는다. 여기서만 결측을 버리면 실험에서 이긴 모델과
     # 다른 모델이 배포된다
-    table, load_info = load_table(features_path, p["drop_missing"])
+    # 학습과 같은 목록을 봐야 한다. 여기서 빠뜨리면 배포 모델만 걸러내지 않은
+    # 녹음으로 학습되고, 파이프라인 설명과 실제 산출물이 어긋난다.
+    from sleepstage.experiment.pipeline.quality import load_excluded
+
+    table, load_info = load_table(
+        features_path, p["drop_missing"], load_excluded(p.get("quality_report"))
+    )
 
     subset = p.get("feature_subset", "all")
     if subset not in SUBSETS:

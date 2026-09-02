@@ -3,9 +3,13 @@
     "filter": "zerophase",
     "normalize": "expanding",
     "context": "smooth",
-    "distance_features": true
+    "distance_features": true,
+    "welch_average": "mean",
+    "window_extremes": true,
+    "spindle_events": true,
+    "channel_correlation": true
   },
-  "epoch_seconds": 30,
+  "epoch_seconds": 30.0,
   "sfreq": 100.0,
   "channels": [
     "EEG Fpz-Cz",
