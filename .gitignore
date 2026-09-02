@@ -31,3 +31,7 @@ scripts/draw_model_architecture.py
 
 # 설계 문서는 저장소 밖에 둔다
 docs/
+
+# 노트북과 프로젝트 지침은 저장소에 두지 않는다
+notebooks/
+CLAUDE.md
